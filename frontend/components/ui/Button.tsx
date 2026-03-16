@@ -6,7 +6,7 @@ import {
   type TouchableOpacityProps,
 } from 'react-native';
 
-type ButtonVariant = 'primary' | 'secondary' | 'outline';
+type ButtonVariant = 'primary' | 'secondary' | 'outline' | 'white';
 
 interface ButtonProps extends TouchableOpacityProps {
   title: string;
@@ -19,12 +19,14 @@ const variantStyles: Record<ButtonVariant, string> = {
   primary: 'bg-indigo-600 active:bg-indigo-700',
   secondary: 'bg-zinc-700 active:bg-zinc-600',
   outline: 'border border-indigo-500 bg-transparent active:bg-indigo-500/10',
+  white: 'bg-white active:bg-zinc-200',
 };
 
 const textStyles: Record<ButtonVariant, string> = {
   primary: 'text-white',
   secondary: 'text-zinc-100',
   outline: 'text-indigo-400',
+  white: 'text-black',
 };
 
 export default function Button({
@@ -54,7 +56,7 @@ export default function Button({
       {loading ? (
         <ActivityIndicator
           size="small"
-          color={variant === 'outline' ? '#818cf8' : '#ffffff'}
+          color={variant === 'outline' || variant === 'white' ? '#18181b' : '#ffffff'}
         />
       ) : (
         <Text

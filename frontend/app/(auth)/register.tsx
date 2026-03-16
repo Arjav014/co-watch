@@ -56,46 +56,51 @@ export default function RegisterScreen() {
         contentContainerStyle={{ flexGrow: 1 }}
         keyboardShouldPersistTaps="handled"
       >
-        <View className="flex-1 justify-center px-8 py-12">
+        <View className="flex-1 justify-center px-6 py-8 mt-12 mb-8">
           {/* Header */}
-          <View className="items-center mb-10">
-            <View className="w-16 h-16 rounded-2xl bg-indigo-600 items-center justify-center mb-4">
-              <Ionicons name="person-add" size={32} color="#ffffff" />
-            </View>
-            <Text className="text-3xl font-bold text-white">Join CoWatch</Text>
-            <Text className="text-zinc-500 text-base mt-1">
-              Create your account
+          <View className="flex-row items-center mb-10">
+            <TouchableOpacity onPress={() => router.back()} className="p-2 -ml-2" hitSlop={{top:20,bottom:20,left:20,right:20}}>
+              <Ionicons name="arrow-back" size={24} color="white" />
+            </TouchableOpacity>
+            <Text className="text-white font-bold text-xs tracking-[0.2em] flex-1 text-center mr-8">
+              COWATCH
+            </Text>
+          </View>
+
+          <View className="mb-8">
+            <Text className="text-4xl font-extrabold text-white mb-3 tracking-tight">Create an account</Text>
+            <Text className="text-zinc-400 text-[15px] font-medium">
+              Enter your details below to join the community.
             </Text>
           </View>
 
           {/* Form */}
-          <Input
-            label="Username"
-            icon="person-outline"
-            placeholder="Choose a username"
-            value={username}
-            onChangeText={setUsername}
-            autoCapitalize="none"
-          />
+          <View className="mb-2">
+            <Input
+              label="USERNAME"
+              placeholder="johndoe"
+              value={username}
+              onChangeText={setUsername}
+              autoCapitalize="none"
+            />
 
-          <Input
-            label="Email"
-            icon="mail-outline"
-            placeholder="you@example.com"
-            value={email}
-            onChangeText={setEmail}
-            keyboardType="email-address"
-            autoCapitalize="none"
-          />
+            <Input
+              label="EMAIL ADDRESS"
+              placeholder="name@example.com"
+              value={email}
+              onChangeText={setEmail}
+              keyboardType="email-address"
+              autoCapitalize="none"
+            />
 
-          <Input
-            label="Password"
-            icon="lock-closed-outline"
-            placeholder="Create a password"
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-          />
+            <Input
+              label="PASSWORD"
+              placeholder="••••••••"
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry
+            />
+          </View>
 
           {error ? (
             <View className="flex-row items-center mb-4 px-1">
@@ -106,15 +111,34 @@ export default function RegisterScreen() {
 
           <Button
             title="Create Account"
+            variant="white"
             onPress={handleRegister}
             loading={loading}
+            className="mt-2"
           />
+
+          <View className="flex-row items-center my-8">
+            <View className="flex-1 h-[1px] bg-zinc-800" />
+            <Text className="text-zinc-500 mx-4 text-[11px] font-bold tracking-widest">OR CONTINUE WITH</Text>
+            <View className="flex-1 h-[1px] bg-zinc-800" />
+          </View>
+          
+          <View className="flex-row gap-4 mb-4">
+            <TouchableOpacity className="flex-1 flex-row items-center justify-center border border-zinc-800 rounded-xl py-[14px]">
+              <Ionicons name="logo-google" size={20} color="white" />
+              <Text className="text-white font-semibold ml-2 text-[15px]">Google</Text>
+            </TouchableOpacity>
+            <TouchableOpacity className="flex-1 flex-row items-center justify-center border border-zinc-800 rounded-xl py-[14px]">
+              <Ionicons name="logo-apple" size={20} color="white" />
+              <Text className="text-white font-semibold ml-2 text-[15px]">Apple</Text>
+            </TouchableOpacity>
+          </View>
 
           {/* Login link */}
           <View className="flex-row justify-center mt-6">
-            <Text className="text-zinc-500">Already have an account? </Text>
+            <Text className="text-zinc-500 font-medium text-[15px]">Already have an account? </Text>
             <TouchableOpacity onPress={() => router.back()}>
-              <Text className="text-indigo-400 font-semibold">Sign In</Text>
+              <Text className="text-white font-bold text-[15px]">Sign in</Text>
             </TouchableOpacity>
           </View>
         </View>

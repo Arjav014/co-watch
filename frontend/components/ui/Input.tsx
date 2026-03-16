@@ -12,12 +12,16 @@ interface InputProps extends TextInputProps {
   label?: string;
   error?: string;
   icon?: keyof typeof Ionicons.glyphMap;
+  labelRight?: React.ReactNode;
+  containerClassName?: string;
 }
 
 export default function Input({
   label,
   error,
   icon,
+  labelRight,
+  containerClassName,
   secureTextEntry,
   className,
   ...rest
@@ -26,15 +30,21 @@ export default function Input({
 
   return (
     <View className={`w-full mb-4 ${className ?? ''}`}>
-      {label && (
-        <Text className="text-zinc-400 text-sm font-medium mb-2 ml-1">
-          {label}
-        </Text>
+      {(label || labelRight) && (
+        <View className="flex-row justify-between items-center mb-2 ml-1">
+          {label ? (
+            <Text className="text-[#a1a1aa] text-[13px] font-bold tracking-widest">
+              {label}
+            </Text>
+          ) : <View />}
+          {labelRight && labelRight}
+        </View>
       )}
       <View
         className={`
-          flex-row items-center rounded-xl bg-zinc-800/80 border px-4
-          ${error ? 'border-red-500' : 'border-zinc-700'}
+          flex-row items-center rounded-xl bg-[#09090b] border px-4 h-14
+          ${error ? 'border-red-500' : 'border-zinc-800'}
+          ${containerClassName ?? ''}
         `}
       >
         {icon && (

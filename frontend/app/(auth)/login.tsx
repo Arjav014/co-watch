@@ -51,37 +51,42 @@ export default function LoginScreen() {
         contentContainerStyle={{ flexGrow: 1 }}
         keyboardShouldPersistTaps="handled"
       >
-        <View className="flex-1 justify-center px-8 py-12">
+        <View className="flex-1 justify-center px-6 py-12">
           {/* Logo / Brand */}
-          <View className="items-center mb-12">
-            <View className="w-16 h-16 rounded-2xl bg-indigo-600 items-center justify-center mb-4">
-              <Ionicons name="play-circle" size={36} color="#ffffff" />
+          <View className="items-center mb-10 mt-8">
+            <View className="w-16 h-16 rounded-[22px] bg-white items-center justify-center mb-6 shadow-sm">
+              <Ionicons name="film-outline" size={36} color="#000000" />
             </View>
-            <Text className="text-3xl font-bold text-white">CoWatch</Text>
-            <Text className="text-zinc-500 text-base mt-1">
-              Watch together, vibe together
+            <Text className="text-3xl font-extrabold text-white tracking-tight">Welcome to CoWatch</Text>
+            <Text className="text-zinc-400 text-base mt-2 font-medium">
+              Sign in to watch with friends
             </Text>
           </View>
 
           {/* Form */}
-          <Input
-            label="Email"
-            icon="mail-outline"
-            placeholder="you@example.com"
-            value={email}
-            onChangeText={setEmail}
-            keyboardType="email-address"
-            autoCapitalize="none"
-          />
+          <View className="mb-2">
+            <Input
+              label="Email address"
+              placeholder="name@example.com"
+              value={email}
+              onChangeText={setEmail}
+              keyboardType="email-address"
+              autoCapitalize="none"
+            />
 
-          <Input
-            label="Password"
-            icon="lock-closed-outline"
-            placeholder="Enter your password"
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-          />
+            <Input
+              label="Password"
+              labelRight={
+                <TouchableOpacity onPress={() => {}}>
+                  <Text className="text-zinc-300 text-sm font-semibold">Forgot password?</Text>
+                </TouchableOpacity>
+              }
+              placeholder="••••••••"
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry
+            />
+          </View>
 
           {error ? (
             <View className="flex-row items-center mb-4 px-1">
@@ -91,16 +96,18 @@ export default function LoginScreen() {
           ) : null}
 
           <Button
-            title="Sign In"
+            title="Sign in"
+            variant="white"
             onPress={handleLogin}
             loading={loading}
+            className="mt-2"
           />
 
           {/* Register link */}
-          <View className="flex-row justify-center mt-6">
-            <Text className="text-zinc-500">Don't have an account? </Text>
+          <View className="flex-row justify-center mt-12 mb-8">
+            <Text className="text-zinc-500 font-medium text-[15px]">Don't have an account? </Text>
             <TouchableOpacity onPress={() => router.push('/(auth)/register')}>
-              <Text className="text-indigo-400 font-semibold">Sign Up</Text>
+              <Text className="text-white font-bold text-[15px]">Create one now</Text>
             </TouchableOpacity>
           </View>
         </View>
