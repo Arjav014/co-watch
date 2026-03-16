@@ -1,52 +1,113 @@
 import React from 'react';
-import { View, Text } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/context/AuthContext';
 import Avatar from '@/components/ui/Avatar';
 import Button from '@/components/ui/Button';
+import RoomCard from '@/components/ui/RoomCard';
+import { useRouter } from 'expo-router';
+
+// Dummy data to visualize the design
+const MOCK_ROOMS = [
+  {
+    id: '1',
+    title: 'Midnight Thriller Night',
+    participants: 4,
+    timeAgo: '2h ago',
+    imageUrl: 'https://images.unsplash.com/photo-1536440136628-849c177e76a1?q=80&w=200&auto=format&fit=crop',
+  },
+  {
+    id: '2',
+    title: 'Documentary Club',
+    participants: 2,
+    timeAgo: 'Yesterday',
+    imageUrl: 'https://images.unsplash.com/photo-1594909122845-11baa439b7bf?q=80&w=200&auto=format&fit=crop',
+  },
+  {
+    id: '3',
+    title: 'Anime Marathon',
+    participants: 8,
+    timeAgo: '3 days ago',
+    // Deliberately empty imageUrl to show fallback
+  },
+];
 
 export default function HomeScreen() {
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
+  const router = useRouter();
 
   return (
-    <View className="flex-1 bg-zinc-950 px-6 pt-16">
-      {/* Header */}
-      <View className="flex-row items-center justify-between mb-10">
-        <View className="flex-row items-center">
-          <Avatar username={user?.username} size="lg" />
-          <View className="ml-4">
-            <Text className="text-zinc-500 text-sm">Welcome back</Text>
-            <Text className="text-white text-xl font-bold">
-              {user?.username ?? 'User'}
+    <ScrollView 
+      className="flex-1 bg-[#18181b]"
+      contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 64, paddingBottom: 40 }}
+    >
+      {/* Header Profile Row */}
+      <View className="flex-row items-center justify-between mb-12">
+        <View className="flex-row items-center flex-1">
+          <View className="p-1 rounded-full bg-yellow-50 mr-3">
+             <Avatar username={user?.username ?? 'Alex Rivera'} size="md" />
+          </View>
+          <View>
+            <Text className="text-zinc-400 text-[11px] font-bold tracking-widest uppercase mb-0.5">
+              Welcome back
+            </Text>
+            <Text className="text-white text-[19px] font-bold">
+              {user?.username ?? 'Alex Rivera'}
             </Text>
           </View>
         </View>
-        <Ionicons name="notifications-outline" size={24} color="#a1a1aa" />
+        <TouchableOpacity className="w-12 h-12 rounded-full bg-[#27272a] items-center justify-center">
+          <Ionicons name="settings-outline" size={22} color="white" />
+        </TouchableOpacity>
       </View>
 
-      {/* Quick Actions */}
-      <View className="bg-zinc-900 rounded-2xl p-6 mb-6">
-        <Text className="text-white text-lg font-semibold mb-4">
-          Start watching
+      {/* Hero Title */}
+      <View className="mb-10">
+        <Text className="text-[44px] font-extrabold text-white tracking-tight leading-tight mb-2">
+          CoWatch
         </Text>
+        <Text className="text-zinc-400 text-lg font-medium">
+          Sync movies with friends anywhere.
+        </Text>
+      </View>
+
+      {/* Action Buttons */}
+      <View className="mb-12">
         <Button
           title="Create Room"
-          variant="primary"
-          className="mb-3"
+          variant="white"
+          leftIcon={<Ionicons name="add-circle-outline" size={24} color="black" />}
+          className="mb-4"
         />
         <Button
           title="Join Room"
           variant="secondary"
+          leftIcon={<Ionicons name="person-add-outline" size={22} color="white" />}
+          className="bg-[#27272a] active:bg-[#3f3f46]"
         />
       </View>
 
-      {/* Placeholder for recent rooms */}
-      <View className="flex-1 items-center justify-center">
-        <Ionicons name="film-outline" size={48} color="#3f3f46" />
-        <Text className="text-zinc-600 text-base mt-3">
-          No recent rooms yet
-        </Text>
+      {/* Recent Rooms Header */}
+      <View className="flex-row items-center justify-between mb-4">
+        <Text className="text-white text-[19px] font-bold">Recent Rooms</Text>
+        <TouchableOpacity>
+          <Text className="text-indigo-400 font-semibold text-[15px]">View all</Text>
+        </TouchableOpacity>
       </View>
-    </View>
+
+      {/* Recent Rooms List */}
+      <View>
+        {MOCK_ROOMS.map((room) => (
+          <RoomCard
+            key={room.id}
+            title={room.title}
+            participants={room.participants}
+            timeAgo={room.timeAgo}
+            imageUrl={room.imageUrl}
+            onPress={() => console.log('Press room:', room.id)}
+          />
+        ))}
+      </View>
+    </ScrollView>
   );
 }
