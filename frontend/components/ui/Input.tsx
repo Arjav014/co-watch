@@ -12,6 +12,8 @@ interface InputProps extends TextInputProps {
   label?: string;
   error?: string;
   icon?: keyof typeof Ionicons.glyphMap;
+  rightIcon?: keyof typeof Ionicons.glyphMap;
+  onRightIconPress?: () => void;
   labelRight?: React.ReactNode;
   containerClassName?: string;
 }
@@ -20,6 +22,8 @@ export default function Input({
   label,
   error,
   icon,
+  rightIcon,
+  onRightIconPress,
   labelRight,
   containerClassName,
   secureTextEntry,
@@ -61,6 +65,19 @@ export default function Input({
           className="flex-1 text-white text-base py-4"
           {...rest}
         />
+        {rightIcon && !secureTextEntry && (
+          <TouchableOpacity
+            onPress={onRightIconPress}
+            disabled={!onRightIconPress}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Ionicons
+              name={rightIcon}
+              size={20}
+              color="#a1a1aa"
+            />
+          </TouchableOpacity>
+        )}
         {secureTextEntry && (
           <TouchableOpacity
             onPress={() => setIsSecure((prev) => !prev)}

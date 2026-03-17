@@ -78,6 +78,7 @@ export default function HomeScreen() {
           variant="white"
           leftIcon={<Ionicons name="add-circle-outline" size={24} color="black" />}
           className="mb-4"
+          onPress={() => router.push('/(app)/create-room')}
         />
         <Button
           title="Join Room"

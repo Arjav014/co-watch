@@ -58,6 +58,12 @@ export default function AppLayout() {
           ),
         }}
       />
+      <Tabs.Screen
+        name="create-room"
+        options={{
+          href: null,
+        }}
+      />
     </Tabs>
   );
 }
