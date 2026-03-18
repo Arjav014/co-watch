@@ -20,8 +20,8 @@ export default function CreateRoomScreen() {
     // Simulate API call
     setTimeout(() => {
       setIsLoading(false);
-      // Navigate to the room or back to home for now
-      router.back();
+      // Navigate to the watch room
+      router.push('./watch-room');
     }, 1500);
   };
 

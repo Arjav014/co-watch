@@ -70,6 +70,12 @@ export default function AppLayout() {
           href: null,
         }}
       />
+      <Tabs.Screen
+        name="watch-room"
+        options={{
+          href: null,
+        }}
+      />
     </Tabs>
   );
 }
