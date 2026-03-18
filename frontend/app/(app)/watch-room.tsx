@@ -12,6 +12,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import Avatar from '@/components/ui/Avatar';
+import ParticipantsModal from '@/components/ui/ParticipantsModal';
 
 // ── Mock data ──────────────────────────────────────────────
 
@@ -63,6 +64,7 @@ export default function WatchRoomScreen() {
   const scrollRef = useRef<ScrollView>(null);
   const [messageText, setMessageText] = useState('');
   const [isPlaying, setIsPlaying] = useState(false);
+  const [showParticipants, setShowParticipants] = useState(false);
 
   const handleSend = () => {
     if (!messageText.trim()) return;
@@ -92,10 +94,14 @@ export default function WatchRoomScreen() {
 
           <View className="flex-row items-center">
             {/* Participants pill */}
-            <View className="flex-row items-center bg-[#1c1c1f] rounded-full px-3 py-1.5 mr-3">
+            <TouchableOpacity
+              onPress={() => setShowParticipants(true)}
+              className="flex-row items-center bg-[#1c1c1f] rounded-full px-3 py-1.5 mr-3"
+              activeOpacity={0.7}
+            >
               <Ionicons name="people" size={14} color="#a1a1aa" style={{ marginRight: 4 }} />
               <Text className="text-zinc-400 text-xs font-bold">{ROOM.participants}</Text>
-            </View>
+            </TouchableOpacity>
 
             {/* Leave button */}
             <TouchableOpacity
@@ -235,6 +241,12 @@ export default function WatchRoomScreen() {
           </View>
         </View>
       </KeyboardAvoidingView>
+
+      {/* ─── Participants Modal ─── */}
+      <ParticipantsModal
+        visible={showParticipants}
+        onClose={() => setShowParticipants(false)}
+      />
     </SafeAreaView>
   );
 }
