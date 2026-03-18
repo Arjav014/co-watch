@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 // TODO: Replace with your actual backend URL
-const BASE_URL = 'http://10.12.84.181:5000'; // Android emulator → localhost
+const BASE_URL = 'http://10.12.11.107:5000'; // Android emulator → localhost
 
 const api = axios.create({
   baseURL: BASE_URL,

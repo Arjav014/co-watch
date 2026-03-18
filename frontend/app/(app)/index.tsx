@@ -63,7 +63,7 @@ export default function HomeScreen() {
 
       {/* Hero Title */}
       <View className="mb-10">
-        <Text className="text-[44px] font-extrabold text-white tracking-tight leading-tight mb-2">
+        <Text className="text-[44px] font-bold text-white tracking-tight leading-tight mb-2">
           CoWatch
         </Text>
         <Text className="text-zinc-400 text-lg font-medium">
@@ -78,13 +78,14 @@ export default function HomeScreen() {
           variant="white"
           leftIcon={<Ionicons name="add-circle-outline" size={24} color="black" />}
           className="mb-4"
-          onPress={() => router.push('/(app)/create-room')}
+          onPress={() => router.push('./create-room')}
         />
         <Button
           title="Join Room"
           variant="secondary"
           leftIcon={<Ionicons name="person-add-outline" size={22} color="white" />}
           className="bg-[#27272a] active:bg-[#3f3f46]"
+          onPress={() => router.push('./join-room')}
         />
       </View>
 

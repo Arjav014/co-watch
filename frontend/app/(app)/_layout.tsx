@@ -64,6 +64,12 @@ export default function AppLayout() {
           href: null,
         }}
       />
+      <Tabs.Screen
+        name="join-room"
+        options={{
+          href: null,
+        }}
+      />
     </Tabs>
   );
 }

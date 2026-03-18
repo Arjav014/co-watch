@@ -44,7 +44,7 @@ export default function CreateRoomScreen() {
       <ScrollView className="flex-1 px-4 pt-6" contentContainerStyle={{ paddingBottom: 40 }}>
         {/* Title Section */}
         <View className="mb-8">
-          <Text className="text-white text-3xl font-extrabold mb-2 tracking-tight">
+          <Text className="text-white text-3xl font-bold mb-2 tracking-tight">
             Start a Session
           </Text>
           <Text className="text-[#a1a1aa] text-base leading-6">
