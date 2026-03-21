@@ -10,14 +10,17 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { useRoomSession } from '@/context/RoomSessionContext';
+import { getErrorMessage } from '@/services/api';
 
 const CODE_LENGTH = 6;
 
 export default function JoinRoomScreen() {
   const router = useRouter();
   const inputRef = useRef<TextInput>(null);
+  const { joinExistingRoom, isRoomLoading, clearRoomError } = useRoomSession();
   const [roomCode, setRoomCode] = useState('');
-  const [isJoining, setIsJoining] = useState(false);
+  const [error, setError] = useState('');
 
   const digits = useMemo(
     () => Array.from({ length: CODE_LENGTH }, (_, index) => roomCode[index] ?? ''),
@@ -25,24 +28,31 @@ export default function JoinRoomScreen() {
   );
 
   const handleCodeChange = (value: string) => {
-    const nextValue = value.replace(/\D/g, '').slice(0, CODE_LENGTH);
+    const nextValue = value.replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, CODE_LENGTH);
     setRoomCode(nextValue);
   };
 
-  const handleJoinRoom = () => {
-    if (roomCode.length !== CODE_LENGTH || isJoining) return;
+  const handleJoinRoom = async () => {
+    if (roomCode.length !== CODE_LENGTH || isRoomLoading) {
+      return;
+    }
 
-    setIsJoining(true);
+    clearRoomError();
+    setError('');
 
-    setTimeout(() => {
-      setIsJoining(false);
-      router.back();
-    }, 1200);
+    try {
+      const room = await joinExistingRoom(roomCode);
+      router.replace({
+        pathname: '/(app)/watch-room',
+        params: { roomId: room.roomId },
+      });
+    } catch (err) {
+      setError(getErrorMessage(err));
+    }
   };
 
   return (
     <SafeAreaView edges={['top']} className="flex-1 bg-[#09090b]">
-      {/* Header */}
       <View className="flex-row items-center px-4 py-4 border-b border-zinc-800">
         <TouchableOpacity
           onPress={() => router.back()}
@@ -57,7 +67,6 @@ export default function JoinRoomScreen() {
       </View>
 
       <ScrollView className="flex-1 px-4 pt-6" contentContainerStyle={{ paddingBottom: 40 }}>
-        {/* Icon + Title Section */}
         <View className="items-center mb-8">
           <View className="mb-6 h-20 w-20 items-center justify-center rounded-[24px] bg-[#121a33]">
             <Ionicons name="people-outline" size={36} color="#f4f4f5" />
@@ -71,20 +80,16 @@ export default function JoinRoomScreen() {
           </Text>
 
           <Text className="max-w-[300px] text-center text-base leading-6 text-[#a1a1aa]">
-            Enter the 6-digit code shared by the host to start watching together.
+            Enter the 6-character code shared by the host to start watching together.
           </Text>
         </View>
 
-        {/* Code Input */}
-        <Pressable
-          onPress={() => inputRef.current?.focus()}
-          className="mb-8"
-        >
+        <Pressable onPress={() => inputRef.current?.focus()} className="mb-5">
           <TextInput
             ref={inputRef}
             value={roomCode}
             onChangeText={handleCodeChange}
-            keyboardType="number-pad"
+            autoCapitalize="characters"
             maxLength={CODE_LENGTH}
             autoFocus
             caretHidden
@@ -116,25 +121,30 @@ export default function JoinRoomScreen() {
           </View>
         </Pressable>
 
-        {/* Join Button */}
+        {error ? (
+          <View className="flex-row items-center mb-4 px-1">
+            <Ionicons name="alert-circle" size={16} color="#f87171" />
+            <Text className="text-red-400 text-sm ml-2">{error}</Text>
+          </View>
+        ) : null}
+
         <TouchableOpacity
           activeOpacity={0.85}
-          disabled={roomCode.length !== CODE_LENGTH || isJoining}
+          disabled={roomCode.length !== CODE_LENGTH || isRoomLoading}
           onPress={handleJoinRoom}
           className={`mb-4 flex-row items-center justify-center rounded-2xl px-6 py-5 ${
-            roomCode.length === CODE_LENGTH && !isJoining ? 'bg-white' : 'bg-zinc-300/60'
+            roomCode.length === CODE_LENGTH && !isRoomLoading ? 'bg-white' : 'bg-zinc-300/60'
           }`}
         >
           <Text className="mr-2 text-lg font-bold text-[#17213d]">
-            {isJoining ? 'Joining...' : 'Join Room'}
+            {isRoomLoading ? 'Joining...' : 'Join Room'}
           </Text>
           <Ionicons name="arrow-forward" size={22} color="#17213d" />
         </TouchableOpacity>
 
-        {/* Create New Room Button */}
         <TouchableOpacity
           activeOpacity={0.85}
-          onPress={() => router.push('./create-room')}
+          onPress={() => router.push('/(app)/create-room')}
           className="items-center justify-center rounded-2xl border border-zinc-800 bg-[#09090b] px-6 py-5 mb-8"
         >
           <Text className="text-base font-medium text-zinc-100">
@@ -142,7 +152,6 @@ export default function JoinRoomScreen() {
           </Text>
         </TouchableOpacity>
 
-        {/* Info */}
         <View className="flex-row items-center justify-center">
           <Ionicons
             name="information-circle-outline"
@@ -151,7 +160,7 @@ export default function JoinRoomScreen() {
             style={{ marginRight: 6 }}
           />
           <Text className="text-sm text-[#71717a]">
-            Public rooms are currently restricted
+            Room codes use letters and numbers
           </Text>
         </View>
       </ScrollView>

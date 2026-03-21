@@ -8,11 +8,11 @@ import {
     updatePlaybackSchema,
 } from './room.schema';
 
-export const createRoom = (req: Request, res: Response, next: NextFunction) => {
+export const createRoom = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const user = req.user!;
         const validatedData = createRoomSchema.parse(req.body ?? {});
-        const room = roomService.createRoom(user.userId, user.username, validatedData.videoUrl ?? '');
+        const room = await roomService.createRoom(user.userId, user.username, validatedData);
 
         res.status(201).json({
             success: true,
@@ -27,12 +27,12 @@ export const createRoom = (req: Request, res: Response, next: NextFunction) => {
     }
 };
 
-export const joinRoom = (req: Request, res: Response, next: NextFunction) => {
+export const joinRoom = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const user = req.user!;
         const { roomId } = joinRoomSchema.parse(req.body);
 
-        const room = roomService.joinRoom(roomId, { userId: user.userId, username: user.username });
+        const room = await roomService.joinRoom(roomId, { userId: user.userId, username: user.username });
 
         res.status(200).json({
             success: true,
@@ -51,10 +51,10 @@ export const joinRoom = (req: Request, res: Response, next: NextFunction) => {
     }
 };
 
-export const getRoom = (req: Request, res: Response, next: NextFunction) => {
+export const getRoom = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const { roomId } = req.params;
-        const room = roomService.getRoom(roomId as string);
+        const room = await roomService.getRoom(roomId as string);
 
         if (!room) {
             res.status(404).json({ success: false, message: 'Room not found' });
@@ -70,23 +70,23 @@ export const getRoom = (req: Request, res: Response, next: NextFunction) => {
     }
 };
 
-export const leaveRoom = (req: Request, res: Response, next: NextFunction) => {
+export const leaveRoom = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const user = req.user!;
         const { roomId } = leaveRoomSchema.parse(req.body);
 
-        const room = roomService.getRoom(roomId);
+        const room = await roomService.getRoom(roomId);
         if (!room) {
             res.status(404).json({ success: false, message: 'Room not found' });
             return;
         }
 
-        if (!roomService.isRoomMember(roomId, user.userId)) {
+        if (!(await roomService.isRoomMember(roomId, user.userId))) {
             res.status(403).json({ success: false, message: 'User is not in this room' });
             return;
         }
 
-        const updatedRoom = roomService.leaveRoom(roomId, user.userId);
+        const updatedRoom = await roomService.leaveRoom(roomId, user.userId);
 
         res.status(200).json({
             success: true,
@@ -101,29 +101,29 @@ export const leaveRoom = (req: Request, res: Response, next: NextFunction) => {
     }
 };
 
-export const updatePlayback = (req: Request, res: Response, next: NextFunction) => {
+export const updatePlayback = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const user = req.user!;
         const { roomId } = updatePlaybackParamsSchema.parse(req.params);
         const playbackUpdate = updatePlaybackSchema.parse(req.body);
 
-        const room = roomService.getRoom(roomId);
+        const room = await roomService.getRoom(roomId);
         if (!room) {
             res.status(404).json({ success: false, message: 'Room not found' });
             return;
         }
 
-        if (!roomService.isRoomMember(roomId, user.userId)) {
+        if (!(await roomService.isRoomMember(roomId, user.userId))) {
             res.status(403).json({ success: false, message: 'User is not in this room' });
             return;
         }
 
-        if (!roomService.isRoomHost(roomId, user.userId)) {
+        if (!(await roomService.isRoomHost(roomId, user.userId))) {
             res.status(403).json({ success: false, message: 'Only the host can control playback' });
             return;
         }
 
-        const updatedRoom = roomService.updatePlayback(roomId, playbackUpdate);
+        const updatedRoom = await roomService.updatePlayback(roomId, playbackUpdate);
 
         res.status(200).json({
             success: true,

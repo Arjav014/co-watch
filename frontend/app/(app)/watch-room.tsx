@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -7,70 +7,129 @@ import {
   TouchableOpacity,
   KeyboardAvoidingView,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import Avatar from '@/components/ui/Avatar';
 import ParticipantsModal from '@/components/ui/ParticipantsModal';
+import { useAuth } from '@/context/AuthContext';
+import { useRoomSession } from '@/context/RoomSessionContext';
 
-// ── Mock data ──────────────────────────────────────────────
+function formatDuration(totalSeconds: number) {
+  const safeSeconds = Math.max(0, Math.floor(totalSeconds));
+  const hours = Math.floor(safeSeconds / 3600);
+  const minutes = Math.floor((safeSeconds % 3600) / 60);
+  const seconds = safeSeconds % 60;
 
-const ROOM = {
-  title: 'INTERSTELLAR (2014)',
-  subtitle: 'Public Room • Hosted by Alex',
-  participants: 12,
-  elapsed: '01:42:30',
-  total: '02:49:00',
-  progress: 0.61, // 1:42:30 / 2:49:00
-};
-
-interface ChatMessage {
-  id: string;
-  type: 'user' | 'self' | 'system';
-  username?: string;
-  text: string;
+  const parts = [hours, minutes, seconds].map((value) => value.toString().padStart(2, '0'));
+  return parts.join(':');
 }
 
-const MOCK_MESSAGES: ChatMessage[] = [
-  {
-    id: '1',
-    type: 'user',
-    username: 'Alex',
-    text: 'That docking scene is still the best cinematic moment ever. 🚀',
-  },
-  {
-    id: '2',
-    type: 'user',
-    username: 'Sarah',
-    text: 'The Hans Zimmer score just gave me chills again.',
-  },
-  {
-    id: '3',
-    type: 'self',
-    text: 'TARS is definitely my favorite character.',
-  },
-  {
-    id: '4',
-    type: 'system',
-    text: 'MARCUS JOINED THE ROOM',
-  },
-];
-
-// ── Component ──────────────────────────────────────────────
-
 export default function WatchRoomScreen() {
+  const { roomId } = useLocalSearchParams<{ roomId?: string }>();
   const router = useRouter();
   const scrollRef = useRef<ScrollView>(null);
+  const { user } = useAuth();
+  const {
+    activeRoom,
+    messages,
+    isRoomLoading,
+    isSocketConnected,
+    roomError,
+    clearRoomError,
+    hydrateRoom,
+    leaveActiveRoom,
+    sendChatMessage,
+    togglePlayback,
+  } = useRoomSession();
   const [messageText, setMessageText] = useState('');
-  const [isPlaying, setIsPlaying] = useState(false);
   const [showParticipants, setShowParticipants] = useState(false);
+  const [localElapsed, setLocalElapsed] = useState(0);
 
-  const handleSend = () => {
-    if (!messageText.trim()) return;
-    // Will hook up to socket later
-    setMessageText('');
+  useEffect(() => {
+    if (!roomId) {
+      return;
+    }
+
+    if (activeRoom?.roomId === roomId) {
+      setLocalElapsed(activeRoom.currentTime);
+      return;
+    }
+
+    clearRoomError();
+    hydrateRoom(roomId).catch(() => undefined);
+  }, [roomId, activeRoom?.roomId, activeRoom?.currentTime, clearRoomError, hydrateRoom]);
+
+  useEffect(() => {
+    setLocalElapsed(activeRoom?.currentTime ?? 0);
+  }, [activeRoom?.currentTime, activeRoom?.roomId]);
+
+  useEffect(() => {
+    if (!activeRoom?.isPlaying) {
+      return;
+    }
+
+    const timer = setInterval(() => {
+      setLocalElapsed((previous) => previous + 1);
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [activeRoom?.isPlaying]);
+
+  const isHost = !!activeRoom && activeRoom.hostId === user?.id;
+  const participantsCount = activeRoom?.users.length ?? 0;
+  const progress = useMemo(() => {
+    const baseline = Math.max(localElapsed, activeRoom?.currentTime ?? 0);
+    if (!baseline) {
+      return 0;
+    }
+
+    return Math.min(1, baseline / Math.max(baseline + 1800, 1));
+  }, [activeRoom?.currentTime, localElapsed]);
+
+  const handleSend = async () => {
+    if (!messageText.trim()) {
+      return;
+    }
+
+    try {
+      await sendChatMessage(messageText);
+      setMessageText('');
+    } catch {
+      // Room-level errors are surfaced from context.
+    }
   };
+
+  const handleLeave = async () => {
+    try {
+      await leaveActiveRoom();
+      router.replace('/(app)');
+    } catch {
+      // Room-level errors are surfaced from context.
+    }
+  };
+
+  if (isRoomLoading && !activeRoom) {
+    return (
+      <SafeAreaView edges={['top']} className="flex-1 bg-[#09090b] items-center justify-center">
+        <ActivityIndicator size="large" color="#6366f1" />
+      </SafeAreaView>
+    );
+  }
+
+  if (!activeRoom) {
+    return (
+      <SafeAreaView edges={['top']} className="flex-1 bg-[#09090b] items-center justify-center px-6">
+        <Ionicons name="videocam-off-outline" size={48} color="#52525b" />
+        <Text className="text-white text-xl font-bold mt-5 mb-2">No Active Room</Text>
+        <Text className="text-zinc-500 text-center text-sm leading-5">
+          {roomError || 'Join or create a room to start watching together.'}
+        </Text>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView edges={['top']} className="flex-1 bg-[#09090b]">
@@ -79,7 +138,6 @@ export default function WatchRoomScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={0}
       >
-        {/* ─── Header ─── */}
         <View className="flex-row items-center justify-between px-4 py-3 border-b border-zinc-800">
           <View className="flex-row items-center flex-1">
             <TouchableOpacity
@@ -89,23 +147,26 @@ export default function WatchRoomScreen() {
             >
               <Ionicons name="arrow-back" size={22} color="#ffffff" />
             </TouchableOpacity>
-            <Text className="text-white text-base font-bold">CoWatch</Text>
+            <View>
+              <Text className="text-white text-base font-bold">{activeRoom.roomName}</Text>
+              <Text className="text-zinc-500 text-xs mt-0.5">
+                {isSocketConnected ? 'LIVE CONNECTION' : 'CONNECTING'} • {activeRoom.roomId}
+              </Text>
+            </View>
           </View>
 
           <View className="flex-row items-center">
-            {/* Participants pill */}
             <TouchableOpacity
               onPress={() => setShowParticipants(true)}
               className="flex-row items-center bg-[#1c1c1f] rounded-full px-3 py-1.5 mr-3"
               activeOpacity={0.7}
             >
               <Ionicons name="people" size={14} color="#a1a1aa" style={{ marginRight: 4 }} />
-              <Text className="text-zinc-400 text-xs font-bold">{ROOM.participants}</Text>
+              <Text className="text-zinc-400 text-xs font-bold">{participantsCount}</Text>
             </TouchableOpacity>
 
-            {/* Leave button */}
             <TouchableOpacity
-              onPress={() => router.back()}
+              onPress={handleLeave}
               className="bg-red-600 rounded-full px-4 py-1.5"
               activeOpacity={0.8}
             >
@@ -114,104 +175,124 @@ export default function WatchRoomScreen() {
           </View>
         </View>
 
-        {/* ─── Video Player Area ─── */}
         <View className="bg-black">
-          {/* Video frame */}
-          <View className="w-full aspect-video items-center justify-center bg-[#0a0a0a]">
+          <View className="w-full aspect-video items-center justify-center bg-[#0a0a0a] px-6">
             <TouchableOpacity
-              onPress={() => setIsPlaying(!isPlaying)}
+              onPress={() => togglePlayback(localElapsed).catch(() => undefined)}
               activeOpacity={0.7}
+              disabled={!isHost}
             >
-              <View className="w-16 h-16 rounded-full bg-[#2a2a2e] items-center justify-center">
+              <View className={`w-16 h-16 rounded-full items-center justify-center ${isHost ? 'bg-[#2a2a2e]' : 'bg-[#1a1a1d]'}`}>
                 <Ionicons
-                  name={isPlaying ? 'pause' : 'play'}
+                  name={activeRoom.isPlaying ? 'pause' : 'play'}
                   size={28}
                   color="#ffffff"
-                  style={isPlaying ? undefined : { marginLeft: 3 }}
+                  style={activeRoom.isPlaying ? undefined : { marginLeft: 3 }}
                 />
               </View>
             </TouchableOpacity>
+            <Text className="text-zinc-300 text-sm mt-5 text-center" numberOfLines={2}>
+              {activeRoom.videoUrl}
+            </Text>
+            <Text className="text-zinc-500 text-xs mt-2">
+              {isHost ? 'You control playback for the room' : 'Only the host can control playback'}
+            </Text>
           </View>
 
-          {/* Seek bar */}
           <View className="px-4 pt-2 pb-1">
             <View className="h-1 w-full rounded-full bg-[#27272a]">
               <View
                 className="h-1 rounded-full bg-white"
-                style={{ width: `${ROOM.progress * 100}%` }}
+                style={{ width: `${progress * 100}%` }}
               />
-              {/* Thumb dot */}
               <View
                 className="w-3 h-3 rounded-full bg-white absolute -top-1"
-                style={{ left: `${ROOM.progress * 100}%`, marginLeft: -6 }}
+                style={{ left: `${progress * 100}%`, marginLeft: -6 }}
               />
             </View>
           </View>
 
-          {/* Controls row */}
           <View className="flex-row items-center justify-between px-4 pb-3 pt-1">
             <View className="flex-row items-center">
-              <TouchableOpacity onPress={() => setIsPlaying(!isPlaying)} className="mr-3">
-                <Ionicons name={isPlaying ? 'pause' : 'pause'} size={20} color="#ffffff" />
+              <TouchableOpacity
+                onPress={() => togglePlayback(localElapsed).catch(() => undefined)}
+                className="mr-3"
+                disabled={!isHost}
+              >
+                <Ionicons
+                  name={activeRoom.isPlaying ? 'pause' : 'play'}
+                  size={20}
+                  color={isHost ? '#ffffff' : '#71717a'}
+                />
               </TouchableOpacity>
               <Text className="text-zinc-400 text-xs">
-                {ROOM.elapsed} / {ROOM.total}
+                {formatDuration(localElapsed)} • {activeRoom.isPrivate ? 'Private room' : 'Open room'}
               </Text>
             </View>
             <View className="flex-row items-center">
               <TouchableOpacity className="mr-4">
                 <Ionicons name="settings-outline" size={18} color="#a1a1aa" />
               </TouchableOpacity>
-              <TouchableOpacity>
+              <TouchableOpacity onPress={() => setShowParticipants(true)}>
                 <Ionicons name="scan-outline" size={18} color="#a1a1aa" />
               </TouchableOpacity>
             </View>
           </View>
         </View>
 
-        {/* ─── Room Info ─── */}
         <View className="px-4 py-3 border-b border-zinc-800">
-          <Text className="text-white text-lg font-bold">{ROOM.title}</Text>
-          <Text className="text-zinc-500 text-sm mt-0.5">{ROOM.subtitle}</Text>
+          <Text className="text-white text-lg font-bold">{activeRoom.roomName}</Text>
+          <Text className="text-zinc-500 text-sm mt-0.5">
+            Hosted by {activeRoom.users.find((participant) => participant.userId === activeRoom.hostId)?.username ?? 'Unknown'}
+          </Text>
+          {roomError ? (
+            <Text className="text-red-400 text-xs mt-2">{roomError}</Text>
+          ) : null}
         </View>
 
-        {/* ─── Chat Messages ─── */}
         <ScrollView
           ref={scrollRef}
           className="flex-1 px-4"
           contentContainerStyle={{ paddingVertical: 16 }}
           onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: false })}
         >
-          {MOCK_MESSAGES.map((msg) => {
+          {!messages.length ? (
+            <View className="items-center py-10">
+              <Text className="text-zinc-500 text-sm">
+                No messages yet. Start the conversation.
+              </Text>
+            </View>
+          ) : null}
+
+          {messages.map((msg) => {
             if (msg.type === 'system') {
               return (
                 <View key={msg.id} className="items-center my-4">
                   <Text className="text-[#52525b] text-xs font-bold tracking-widest uppercase">
-                    {msg.text}
+                    {msg.message}
                   </Text>
                 </View>
               );
             }
 
-            if (msg.type === 'self') {
+            if (msg.userId === user?.id) {
               return (
                 <View key={msg.id} className="items-end mb-4">
                   <Text className="text-zinc-500 text-xs font-bold mb-1.5 mr-1">You</Text>
                   <View className="bg-[#1c1c2e] rounded-2xl rounded-tr-sm px-4 py-3 max-w-[85%]">
-                    <Text className="text-zinc-200 text-sm leading-5">{msg.text}</Text>
+                    <Text className="text-zinc-200 text-sm leading-5">{msg.message}</Text>
                   </View>
                 </View>
               );
             }
 
-            // Other user
             return (
               <View key={msg.id} className="flex-row mb-4">
                 <Avatar username={msg.username ?? '?'} size="sm" className="mt-1" />
                 <View className="ml-3 flex-1">
                   <Text className="text-indigo-400 text-xs font-bold mb-1.5">{msg.username}</Text>
                   <View className="bg-[#18181b] rounded-2xl rounded-tl-sm px-4 py-3 self-start max-w-[90%]">
-                    <Text className="text-zinc-300 text-sm leading-5">{msg.text}</Text>
+                    <Text className="text-zinc-300 text-sm leading-5">{msg.message}</Text>
                   </View>
                 </View>
               </View>
@@ -219,7 +300,6 @@ export default function WatchRoomScreen() {
           })}
         </ScrollView>
 
-        {/* ─── Message Input ─── */}
         <View className="px-4 pb-3 pt-2 border-t border-zinc-800">
           <View className="flex-row items-center bg-[#18181b] rounded-full border border-zinc-800 px-4 py-2">
             <TextInput
@@ -242,10 +322,10 @@ export default function WatchRoomScreen() {
         </View>
       </KeyboardAvoidingView>
 
-      {/* ─── Participants Modal ─── */}
       <ParticipantsModal
         visible={showParticipants}
         onClose={() => setShowParticipants(false)}
+        room={activeRoom}
       />
     </SafeAreaView>
   );

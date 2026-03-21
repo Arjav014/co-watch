@@ -1,6 +1,7 @@
 import { createServer } from 'http';
 import app from './app';
 import { connectDB } from './config/database';
+import { connectRedis } from './config/redis';
 import { Server } from 'socket.io';
 import dotenv from 'dotenv';
 
@@ -24,6 +25,7 @@ setupSockets(io);
 
 const startServer = async () => {
     await connectDB();
+    await connectRedis();
     httpServer.listen(PORT, () => {
         console.log(`Server running on port ${PORT}`);
     });

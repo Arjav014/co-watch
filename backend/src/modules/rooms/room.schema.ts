@@ -1,7 +1,9 @@
 import { z } from 'zod';
 
 export const createRoomSchema = z.object({
-    videoUrl: z.string().trim().min(1).optional(),
+    roomName: z.string().trim().min(1),
+    videoUrl: z.string().trim().min(1),
+    isPrivate: z.boolean().optional(),
 });
 
 export const joinRoomSchema = z.object({

@@ -3,6 +3,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 import { View, ActivityIndicator } from 'react-native';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
+import { RoomSessionProvider } from '@/context/RoomSessionContext';
 import '../global.css';
 
 function RootNavigator() {
@@ -22,7 +23,7 @@ function RootNavigator() {
       // Already authenticated → go to app
       router.replace('/(app)');
     }
-  }, [token, isLoading, segments]);
+  }, [token, isLoading, segments, router]);
 
   if (isLoading) {
     return (
@@ -43,7 +44,9 @@ function RootNavigator() {
 export default function RootLayout() {
   return (
     <AuthProvider>
-      <RootNavigator />
+      <RoomSessionProvider>
+        <RootNavigator />
+      </RoomSessionProvider>
     </AuthProvider>
   );
 }

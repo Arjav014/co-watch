@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -10,61 +10,30 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Avatar from './Avatar';
-
-// ── Types ──
-
-interface Participant {
-  id: string;
-  name: string;
-  status: 'Online' | 'Watching' | 'Away' | 'Currently streaming';
-  isHost?: boolean;
-}
+import type { Room } from '@/types';
 
 interface ParticipantsModalProps {
   visible: boolean;
   onClose: () => void;
-  roomId?: string;
+  room: Room | null;
 }
-
-// ── Mock data ──
-
-const MOCK_HOST: Participant = {
-  id: 'h1',
-  name: 'Alex Rivera',
-  status: 'Currently streaming',
-  isHost: true,
-};
-
-const MOCK_WATCHERS: Participant[] = [
-  { id: 'w1', name: 'Sarah Jenkins', status: 'Online' },
-  { id: 'w2', name: 'Jordan Smith', status: 'Watching' },
-  { id: 'w3', name: 'Elena Rossi', status: 'Away' },
-];
-
-// ── Helpers ──
-
-const statusColor: Record<string, string> = {
-  Online: '#22c55e',
-  Watching: '#3b82f6',
-  Away: '#eab308',
-  'Currently streaming': '#22c55e',
-};
-
-// ── Component ──
 
 export default function ParticipantsModal({
   visible,
   onClose,
-  roomId = 'CW-882-991',
+  room,
 }: ParticipantsModalProps) {
   const [search, setSearch] = useState('');
 
-  const filteredWatchers = MOCK_WATCHERS.filter((p) =>
-    p.name.toLowerCase().includes(search.toLowerCase()),
-  );
+  const participants = useMemo(() => {
+    if (!room) {
+      return [];
+    }
 
-  const hostVisible =
-    !search || MOCK_HOST.name.toLowerCase().includes(search.toLowerCase());
+    return room.users.filter((participant) =>
+      participant.username.toLowerCase().includes(search.toLowerCase())
+    );
+  }, [room, search]);
 
   return (
     <Modal
@@ -74,23 +43,16 @@ export default function ParticipantsModal({
       onRequestClose={onClose}
     >
       <SafeAreaView edges={['top', 'bottom']} className="flex-1 bg-[#09090b]">
-        {/* ─── Header ─── */}
         <View className="flex-row items-center justify-between px-4 py-3">
           <View className="flex-row items-center">
             <Ionicons name="people-outline" size={22} color="#ffffff" style={{ marginRight: 10 }} />
             <Text className="text-white text-xl font-bold">Participants</Text>
           </View>
-          <View className="flex-row items-center">
-            <TouchableOpacity className="p-2 mr-1">
-              <Ionicons name="person-add" size={20} color="#a1a1aa" />
-            </TouchableOpacity>
-            <TouchableOpacity onPress={onClose} className="p-2">
-              <Ionicons name="close" size={22} color="#a1a1aa" />
-            </TouchableOpacity>
-          </View>
+          <TouchableOpacity onPress={onClose} className="p-2">
+            <Ionicons name="close" size={22} color="#a1a1aa" />
+          </TouchableOpacity>
         </View>
 
-        {/* ─── Search ─── */}
         <View className="px-4 mb-4">
           <View className="flex-row items-center bg-[#18181b] rounded-xl border border-zinc-800 px-3 py-2.5">
             <Ionicons name="search" size={18} color="#52525b" style={{ marginRight: 8 }} />
@@ -105,67 +67,53 @@ export default function ParticipantsModal({
         </View>
 
         <ScrollView className="flex-1 px-4" contentContainerStyle={{ paddingBottom: 24 }}>
-          {/* ─── Host Section ─── */}
-          {hostVisible && (
-            <>
-              <Text className="text-indigo-400 text-xs font-bold tracking-widest uppercase mb-3">
-                HOST
-              </Text>
-              <View className="flex-row items-center bg-[#09090b] border border-indigo-900/50 rounded-2xl p-3 mb-6">
+          <Text className="text-indigo-400 text-xs font-bold tracking-widest uppercase mb-3">
+            IN ROOM ({participants.length})
+          </Text>
+
+          {participants.map((participant) => {
+            const isHost = room?.hostId === participant.userId;
+
+            return (
+              <View key={participant.userId} className="flex-row items-center py-3.5">
                 <View className="relative">
-                  <Avatar username={MOCK_HOST.name} size="md" />
+                  <Avatar username={participant.username} size="md" />
                   <View
-                    className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-2 border-[#09090b]"
-                    style={{ backgroundColor: statusColor[MOCK_HOST.status] }}
+                    className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-2 border-[#09090b] bg-green-500"
                   />
                 </View>
                 <View className="ml-3 flex-1">
-                  <Text className="text-white text-base font-bold">{MOCK_HOST.name}</Text>
-                  <Text className="text-zinc-500 text-xs mt-0.5">{MOCK_HOST.status}</Text>
+                  <Text className="text-white text-base font-bold">{participant.username}</Text>
+                  <Text className="text-zinc-500 text-xs mt-0.5">
+                    {isHost ? 'Host' : 'Participant'}
+                  </Text>
                 </View>
-                <View className="bg-[#18181b] rounded-lg px-3 py-1">
-                  <Text className="text-zinc-300 text-xs font-bold">HOST</Text>
-                </View>
+                {isHost ? (
+                  <View className="bg-[#18181b] rounded-lg px-3 py-1">
+                    <Text className="text-zinc-300 text-xs font-bold">HOST</Text>
+                  </View>
+                ) : null}
               </View>
-            </>
-          )}
+            );
+          })}
 
-          {/* ─── Watchers Section ─── */}
-          <Text className="text-indigo-400 text-xs font-bold tracking-widest uppercase mb-3">
-            WATCHING ({filteredWatchers.length})
-          </Text>
-
-          {filteredWatchers.map((p) => (
-            <View key={p.id} className="flex-row items-center py-3.5">
-              <View className="relative">
-                <Avatar username={p.name} size="md" />
-                <View
-                  className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-2 border-[#09090b]"
-                  style={{ backgroundColor: statusColor[p.status] }}
-                />
-              </View>
-              <View className="ml-3 flex-1">
-                <Text className="text-white text-base font-bold">{p.name}</Text>
-                <Text className="text-zinc-500 text-xs mt-0.5">{p.status}</Text>
-              </View>
-              <TouchableOpacity className="p-2">
-                <Ionicons name="ellipsis-horizontal" size={18} color="#52525b" />
-              </TouchableOpacity>
-            </View>
-          ))}
+          {!participants.length ? (
+            <Text className="text-zinc-500 text-sm">
+              No participants match your search.
+            </Text>
+          ) : null}
         </ScrollView>
 
-        {/* ─── Bottom ─── */}
         <View className="px-4 pb-3">
           <TouchableOpacity
             activeOpacity={0.85}
             className="flex-row items-center justify-center bg-white rounded-2xl py-4 mb-3"
           >
             <Ionicons name="share-social-outline" size={20} color="#09090b" style={{ marginRight: 8 }} />
-            <Text className="text-[#09090b] text-base font-bold">Invite Friends</Text>
+            <Text className="text-[#09090b] text-base font-bold">Share Code</Text>
           </TouchableOpacity>
           <Text className="text-zinc-600 text-xs text-center tracking-widest uppercase">
-            COWATCH ROOM ID: {roomId}
+            COWATCH ROOM ID: {room?.roomId ?? 'N/A'}
           </Text>
         </View>
       </SafeAreaView>

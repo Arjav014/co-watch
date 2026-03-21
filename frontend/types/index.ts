@@ -4,10 +4,9 @@ export interface User {
   email: string;
 }
 
-export interface AuthResponse {
+export interface ApiResponse<T> {
   success: boolean;
-  token: string;
-  user: User;
+  data: T;
   message?: string;
 }
 
@@ -16,24 +15,31 @@ export interface ApiError {
   message: string;
 }
 
-export interface Room {
-  roomId: string;
-  hostId: string;
-  videoUrl: string;
-  currentTime: number;
-  isPlaying: boolean;
-  users: RoomUser[];
+export interface AuthPayload {
+  token: string;
+  user: User;
 }
 
 export interface RoomUser {
   userId: string;
   username: string;
-  isHost: boolean;
+}
+
+export interface Room {
+  roomId: string;
+  roomName: string;
+  hostId: string;
+  videoUrl: string;
+  currentTime: number;
+  isPlaying: boolean;
+  isPrivate?: boolean;
+  users: RoomUser[];
 }
 
 export interface CreateRoomPayload {
   roomName: string;
   videoUrl: string;
+  isPrivate?: boolean;
 }
 
 export interface JoinRoomPayload {
@@ -41,9 +47,16 @@ export interface JoinRoomPayload {
 }
 
 export interface ChatMessage {
-  roomId: string;
+  id: string;
+  type: 'chat' | 'system';
   userId: string;
-  username: string;
+  username?: string;
   message: string;
   timestamp: string;
+}
+
+export interface PresenceEvent {
+  userId: string;
+  username: string;
+  room?: Room | null;
 }

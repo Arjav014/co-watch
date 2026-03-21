@@ -24,7 +24,7 @@ export const setupSockets = (io: Server) => {
 
         registerRoomEvents(io, socket);
 
-        socket.on('disconnecting', () => {
+        socket.on('disconnecting', async () => {
             if (!socket.user) return;
 
             for (const roomId of socket.rooms) {
@@ -32,16 +32,17 @@ export const setupSockets = (io: Server) => {
                     continue;
                 }
 
-                if (!roomService.isRoomMember(roomId, socket.user.userId)) {
+                if (!(await roomService.isRoomMember(roomId, socket.user.userId))) {
                     continue;
                 }
+
+                const updatedRoom = await roomService.leaveRoom(roomId, socket.user.userId);
 
                 socket.to(roomId).emit('userLeft', {
                     userId: socket.user.userId,
                     username: socket.user.username,
+                    room: updatedRoom,
                 });
-
-                roomService.leaveRoom(roomId, socket.user.userId);
             }
         });
 

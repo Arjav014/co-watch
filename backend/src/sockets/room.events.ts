@@ -18,13 +18,13 @@ const respondWithError = <T = undefined>(ack: Ack<T> | undefined, message: strin
     }
 };
 
-const ensureRoomMember = <T = undefined>(roomId: string, userId: string): EventResponse<T> | null => {
-    const room = roomService.getRoom(roomId);
+const ensureRoomMember = async <T = undefined>(roomId: string, userId: string): Promise<EventResponse<T> | null> => {
+    const room = await roomService.getRoom(roomId);
     if (!room) {
         return { success: false, message: 'Room not found' };
     }
 
-    if (!roomService.isRoomMember(roomId, userId)) {
+    if (!(await roomService.isRoomMember(roomId, userId))) {
         return { success: false, message: 'User is not in this room' };
     }
 
@@ -35,9 +35,30 @@ export const registerRoomEvents = (io: Server, socket: AuthenticatedSocket) => {
     const user = socket.user;
     if (!user) return;
 
-    socket.on('createRoom', (data: { videoUrl?: string } = {}, ack?: Ack<Room>) => {
+    socket.on(
+        'createRoom',
+        async (
+            data: { roomName?: string; videoUrl?: string; isPrivate?: boolean } = {},
+            ack?: Ack<Room>
+        ) => {
         try {
-            const room = roomService.createRoom(user.userId, user.username, data.videoUrl?.trim() || '');
+            const roomName = data.roomName?.trim();
+            const videoUrl = data.videoUrl?.trim();
+            if (!roomName) {
+                respondWithError(ack, 'Room name is required');
+                return;
+            }
+
+            if (!videoUrl) {
+                respondWithError(ack, 'Video URL is required');
+                return;
+            }
+
+            const room = await roomService.createRoom(user.userId, user.username, {
+                roomName,
+                videoUrl,
+                isPrivate: data.isPrivate,
+            });
             socket.join(room.roomId);
 
             if (ack) {
@@ -49,7 +70,7 @@ export const registerRoomEvents = (io: Server, socket: AuthenticatedSocket) => {
         }
     });
 
-    socket.on('joinRoom', (data: { roomId?: string } = {}, ack?: Ack<Room>) => {
+    socket.on('joinRoom', async (data: { roomId?: string } = {}, ack?: Ack<Room>) => {
         try {
             const roomId = data.roomId?.trim();
             if (!roomId) {
@@ -57,14 +78,14 @@ export const registerRoomEvents = (io: Server, socket: AuthenticatedSocket) => {
                 return;
             }
 
-            const existingRoom = roomService.getRoom(roomId);
+            const existingRoom = await roomService.getRoom(roomId);
             if (!existingRoom) {
                 respondWithError(ack, 'Room not found');
                 return;
             }
 
             const alreadyJoined = existingRoom.users.some(member => member.userId === user.userId);
-            const room = roomService.joinRoom(roomId, {
+            const room = await roomService.joinRoom(roomId, {
                 userId: user.userId,
                 username: user.username,
             });
@@ -75,6 +96,7 @@ export const registerRoomEvents = (io: Server, socket: AuthenticatedSocket) => {
                 socket.to(roomId).emit('userJoined', {
                     userId: user.userId,
                     username: user.username,
+                    room,
                 });
             }
 
@@ -88,147 +110,174 @@ export const registerRoomEvents = (io: Server, socket: AuthenticatedSocket) => {
         }
     });
 
-    socket.on('leaveRoom', (data: { roomId?: string } = {}, ack?: Ack<Room>) => {
-        const roomId = data.roomId?.trim();
-        if (!roomId) {
-            respondWithError(ack, 'Room ID is required');
-            return;
-        }
-
-        const membershipError = ensureRoomMember<Room>(roomId, user.userId);
-        if (membershipError) {
-            if (ack) {
-                ack(membershipError);
+    socket.on('leaveRoom', async (data: { roomId?: string } = {}, ack?: Ack<Room>) => {
+        try {
+            const roomId = data.roomId?.trim();
+            if (!roomId) {
+                respondWithError(ack, 'Room ID is required');
+                return;
             }
-            return;
-        }
 
-        socket.leave(roomId);
+            const membershipError = await ensureRoomMember<Room>(roomId, user.userId);
+            if (membershipError) {
+                if (ack) {
+                    ack(membershipError);
+                }
+                return;
+            }
 
-        socket.to(roomId).emit('userLeft', {
-            userId: user.userId,
-            username: user.username,
-        });
+            socket.leave(roomId);
 
-        const updatedRoom = roomService.leaveRoom(roomId, user.userId);
-        if (ack) {
-            ack({ success: true, data: updatedRoom });
+            const updatedRoom = await roomService.leaveRoom(roomId, user.userId);
+
+            socket.to(roomId).emit('userLeft', {
+                userId: user.userId,
+                username: user.username,
+                room: updatedRoom,
+            });
+            if (ack) {
+                ack({ success: true, data: updatedRoom });
+            }
+        } catch (error) {
+            console.error(error);
+            respondWithError(ack, 'Failed to leave room');
         }
     });
 
-    socket.on('play', (data: { roomId?: string, currentTime: number }, ack?: Ack) => {
-        const { roomId, currentTime } = data;
-        if (!roomId?.trim()) {
-            respondWithError(ack, 'Room ID is required');
-            return;
-        }
-
-        const normalizedRoomId = roomId.trim();
-        const membershipError = ensureRoomMember(normalizedRoomId, user.userId);
-        if (membershipError) {
-            if (ack) {
-                ack(membershipError);
+    socket.on('play', async (data: { roomId?: string, currentTime: number }, ack?: Ack) => {
+        try {
+            const { roomId, currentTime } = data;
+            if (!roomId?.trim()) {
+                respondWithError(ack, 'Room ID is required');
+                return;
             }
-            return;
-        }
 
-        if (!roomService.isRoomHost(normalizedRoomId, user.userId)) {
-            respondWithError(ack, 'Only the host can control playback');
-            return;
-        }
+            const normalizedRoomId = roomId.trim();
+            const membershipError = await ensureRoomMember(normalizedRoomId, user.userId);
+            if (membershipError) {
+                if (ack) {
+                    ack(membershipError);
+                }
+                return;
+            }
 
-        roomService.updatePlayback(normalizedRoomId, { isPlaying: true, currentTime });
+            if (!(await roomService.isRoomHost(normalizedRoomId, user.userId))) {
+                respondWithError(ack, 'Only the host can control playback');
+                return;
+            }
 
-        io.to(normalizedRoomId).emit('play', { currentTime });
-        if (ack) {
-            ack({ success: true });
+            await roomService.updatePlayback(normalizedRoomId, { isPlaying: true, currentTime });
+
+            io.to(normalizedRoomId).emit('play', { currentTime });
+            if (ack) {
+                ack({ success: true });
+            }
+        } catch (error) {
+            console.error(error);
+            respondWithError(ack, 'Failed to play video');
         }
     });
 
-    socket.on('pause', (data: { roomId?: string, currentTime: number }, ack?: Ack) => {
-        const { roomId, currentTime } = data;
-        if (!roomId?.trim()) {
-            respondWithError(ack, 'Room ID is required');
-            return;
-        }
-
-        const normalizedRoomId = roomId.trim();
-        const membershipError = ensureRoomMember(normalizedRoomId, user.userId);
-        if (membershipError) {
-            if (ack) {
-                ack(membershipError);
+    socket.on('pause', async (data: { roomId?: string, currentTime: number }, ack?: Ack) => {
+        try {
+            const { roomId, currentTime } = data;
+            if (!roomId?.trim()) {
+                respondWithError(ack, 'Room ID is required');
+                return;
             }
-            return;
-        }
 
-        if (!roomService.isRoomHost(normalizedRoomId, user.userId)) {
-            respondWithError(ack, 'Only the host can control playback');
-            return;
-        }
+            const normalizedRoomId = roomId.trim();
+            const membershipError = await ensureRoomMember(normalizedRoomId, user.userId);
+            if (membershipError) {
+                if (ack) {
+                    ack(membershipError);
+                }
+                return;
+            }
 
-        roomService.updatePlayback(normalizedRoomId, { isPlaying: false, currentTime });
+            if (!(await roomService.isRoomHost(normalizedRoomId, user.userId))) {
+                respondWithError(ack, 'Only the host can control playback');
+                return;
+            }
 
-        io.to(normalizedRoomId).emit('pause', { currentTime });
-        if (ack) {
-            ack({ success: true });
+            await roomService.updatePlayback(normalizedRoomId, { isPlaying: false, currentTime });
+
+            io.to(normalizedRoomId).emit('pause', { currentTime });
+            if (ack) {
+                ack({ success: true });
+            }
+        } catch (error) {
+            console.error(error);
+            respondWithError(ack, 'Failed to pause video');
         }
     });
 
-    socket.on('seek', (data: { roomId?: string, currentTime: number }, ack?: Ack) => {
-        const { roomId, currentTime } = data;
-        if (!roomId?.trim()) {
-            respondWithError(ack, 'Room ID is required');
-            return;
-        }
-
-        const normalizedRoomId = roomId.trim();
-        const membershipError = ensureRoomMember(normalizedRoomId, user.userId);
-        if (membershipError) {
-            if (ack) {
-                ack(membershipError);
+    socket.on('seek', async (data: { roomId?: string, currentTime: number }, ack?: Ack) => {
+        try {
+            const { roomId, currentTime } = data;
+            if (!roomId?.trim()) {
+                respondWithError(ack, 'Room ID is required');
+                return;
             }
-            return;
-        }
 
-        if (!roomService.isRoomHost(normalizedRoomId, user.userId)) {
-            respondWithError(ack, 'Only the host can control playback');
-            return;
-        }
+            const normalizedRoomId = roomId.trim();
+            const membershipError = await ensureRoomMember(normalizedRoomId, user.userId);
+            if (membershipError) {
+                if (ack) {
+                    ack(membershipError);
+                }
+                return;
+            }
 
-        roomService.updatePlayback(normalizedRoomId, { currentTime });
+            if (!(await roomService.isRoomHost(normalizedRoomId, user.userId))) {
+                respondWithError(ack, 'Only the host can control playback');
+                return;
+            }
 
-        io.to(normalizedRoomId).emit('seek', { currentTime });
-        if (ack) {
-            ack({ success: true });
+            await roomService.updatePlayback(normalizedRoomId, { currentTime });
+
+            io.to(normalizedRoomId).emit('seek', { currentTime });
+            if (ack) {
+                ack({ success: true });
+            }
+        } catch (error) {
+            console.error(error);
+            respondWithError(ack, 'Failed to seek video');
         }
     });
 
-    socket.on('videoChange', (data: { roomId?: string, videoUrl: string }, ack?: Ack) => {
-        const { roomId, videoUrl } = data;
-        if (!roomId?.trim()) {
-            respondWithError(ack, 'Room ID is required');
-            return;
-        }
-
-        const normalizedRoomId = roomId.trim();
-        const membershipError = ensureRoomMember(normalizedRoomId, user.userId);
-        if (membershipError) {
-            if (ack) {
-                ack(membershipError);
+    socket.on('videoChange', async (data: { roomId?: string, videoUrl: string }, ack?: Ack) => {
+        try {
+            const { roomId, videoUrl } = data;
+            if (!roomId?.trim()) {
+                respondWithError(ack, 'Room ID is required');
+                return;
             }
-            return;
-        }
 
-        if (!roomService.isRoomHost(normalizedRoomId, user.userId)) {
-            respondWithError(ack, 'Only the host can change the video');
-            return;
-        }
+            const normalizedRoomId = roomId.trim();
+            const membershipError = await ensureRoomMember(normalizedRoomId, user.userId);
+            if (membershipError) {
+                if (ack) {
+                    ack(membershipError);
+                }
+                return;
+            }
 
-        roomService.updatePlayback(normalizedRoomId, { videoUrl, currentTime: 0, isPlaying: false });
+            if (!(await roomService.isRoomHost(normalizedRoomId, user.userId))) {
+                respondWithError(ack, 'Only the host can change the video');
+                return;
+            }
 
-        io.to(normalizedRoomId).emit('videoChange', { videoUrl });
-        if (ack) {
-            ack({ success: true });
+            await roomService.updatePlayback(normalizedRoomId, { videoUrl, currentTime: 0, isPlaying: false });
+            await roomService.persistRoomSnapshot(normalizedRoomId);
+
+            io.to(normalizedRoomId).emit('videoChange', { videoUrl });
+            if (ack) {
+                ack({ success: true });
+            }
+        } catch (error) {
+            console.error(error);
+            respondWithError(ack, 'Failed to change video');
         }
     });
 
@@ -241,7 +290,7 @@ export const registerRoomEvents = (io: Server, socket: AuthenticatedSocket) => {
         }
 
         const normalizedRoomId = roomId.trim();
-        const membershipError = ensureRoomMember(normalizedRoomId, user.userId);
+        const membershipError = await ensureRoomMember(normalizedRoomId, user.userId);
         if (membershipError) {
             if (ack) {
                 ack(membershipError);
