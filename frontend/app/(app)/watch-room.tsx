@@ -8,12 +8,15 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
+  Pressable,
+  type LayoutChangeEvent,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import Avatar from '@/components/ui/Avatar';
 import ParticipantsModal from '@/components/ui/ParticipantsModal';
+import RoomVideoPlayer from '@/components/ui/RoomVideoPlayer';
 import { useAuth } from '@/context/AuthContext';
 import { useRoomSession } from '@/context/RoomSessionContext';
 
@@ -43,10 +46,14 @@ export default function WatchRoomScreen() {
     leaveActiveRoom,
     sendChatMessage,
     togglePlayback,
+    seekPlayback,
   } = useRoomSession();
   const [messageText, setMessageText] = useState('');
   const [showParticipants, setShowParticipants] = useState(false);
   const [localElapsed, setLocalElapsed] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [progressWidth, setProgressWidth] = useState(0);
+  const [playerError, setPlayerError] = useState('');
 
   useEffect(() => {
     if (!roomId) {
@@ -67,27 +74,19 @@ export default function WatchRoomScreen() {
   }, [activeRoom?.currentTime, activeRoom?.roomId]);
 
   useEffect(() => {
-    if (!activeRoom?.isPlaying) {
-      return;
-    }
-
-    const timer = setInterval(() => {
-      setLocalElapsed((previous) => previous + 1);
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, [activeRoom?.isPlaying]);
+    setDuration(0);
+    setPlayerError('');
+  }, [activeRoom?.videoUrl]);
 
   const isHost = !!activeRoom && activeRoom.hostId === user?.id;
   const participantsCount = activeRoom?.users.length ?? 0;
   const progress = useMemo(() => {
-    const baseline = Math.max(localElapsed, activeRoom?.currentTime ?? 0);
-    if (!baseline) {
+    if (!duration) {
       return 0;
     }
 
-    return Math.min(1, baseline / Math.max(baseline + 1800, 1));
-  }, [activeRoom?.currentTime, localElapsed]);
+    return Math.min(1, Math.max(localElapsed, activeRoom?.currentTime ?? 0) / duration);
+  }, [activeRoom?.currentTime, duration, localElapsed]);
 
   const handleSend = async () => {
     if (!messageText.trim()) {
@@ -106,6 +105,26 @@ export default function WatchRoomScreen() {
     try {
       await leaveActiveRoom();
       router.replace('/(app)');
+    } catch {
+      // Room-level errors are surfaced from context.
+    }
+  };
+
+  const handleProgressLayout = (event: LayoutChangeEvent) => {
+    setProgressWidth(event.nativeEvent.layout.width);
+  };
+
+  const handleSeekFromTrack = async (pressX: number) => {
+    if (!isHost || !duration || progressWidth <= 0) {
+      return;
+    }
+
+    const ratio = Math.max(0, Math.min(1, pressX / progressWidth));
+    const nextTime = ratio * duration;
+    setLocalElapsed(nextTime);
+
+    try {
+      await seekPlayback(nextTime);
     } catch {
       // Room-level errors are surfaced from context.
     }
@@ -176,40 +195,31 @@ export default function WatchRoomScreen() {
         </View>
 
         <View className="bg-black">
-          <View className="w-full aspect-video items-center justify-center bg-[#0a0a0a] px-6">
-            <TouchableOpacity
-              onPress={() => togglePlayback(localElapsed).catch(() => undefined)}
-              activeOpacity={0.7}
-              disabled={!isHost}
-            >
-              <View className={`w-16 h-16 rounded-full items-center justify-center ${isHost ? 'bg-[#2a2a2e]' : 'bg-[#1a1a1d]'}`}>
-                <Ionicons
-                  name={activeRoom.isPlaying ? 'pause' : 'play'}
-                  size={28}
-                  color="#ffffff"
-                  style={activeRoom.isPlaying ? undefined : { marginLeft: 3 }}
-                />
-              </View>
-            </TouchableOpacity>
-            <Text className="text-zinc-300 text-sm mt-5 text-center" numberOfLines={2}>
-              {activeRoom.videoUrl}
-            </Text>
-            <Text className="text-zinc-500 text-xs mt-2">
-              {isHost ? 'You control playback for the room' : 'Only the host can control playback'}
-            </Text>
-          </View>
+          <RoomVideoPlayer
+            videoUrl={activeRoom.videoUrl}
+            isHost={isHost}
+            roomIsPlaying={activeRoom.isPlaying}
+            roomCurrentTime={activeRoom.currentTime}
+            onTogglePlayback={togglePlayback}
+            onSeek={seekPlayback}
+            onTimeUpdate={setLocalElapsed}
+            onDurationChange={setDuration}
+            onError={setPlayerError}
+          />
 
           <View className="px-4 pt-2 pb-1">
-            <View className="h-1 w-full rounded-full bg-[#27272a]">
-              <View
-                className="h-1 rounded-full bg-white"
-                style={{ width: `${progress * 100}%` }}
-              />
-              <View
-                className="w-3 h-3 rounded-full bg-white absolute -top-1"
-                style={{ left: `${progress * 100}%`, marginLeft: -6 }}
-              />
-            </View>
+            <Pressable onLayout={handleProgressLayout} onPress={(event) => handleSeekFromTrack(event.nativeEvent.locationX)}>
+              <View className="h-1 w-full rounded-full bg-[#27272a]">
+                <View
+                  className="h-1 rounded-full bg-white"
+                  style={{ width: `${progress * 100}%` }}
+                />
+                <View
+                  className="w-3 h-3 rounded-full bg-white absolute -top-1"
+                  style={{ left: `${progress * 100}%`, marginLeft: -6 }}
+                />
+              </View>
+            </Pressable>
           </View>
 
           <View className="flex-row items-center justify-between px-4 pb-3 pt-1">
@@ -226,7 +236,7 @@ export default function WatchRoomScreen() {
                 />
               </TouchableOpacity>
               <Text className="text-zinc-400 text-xs">
-                {formatDuration(localElapsed)} • {activeRoom.isPrivate ? 'Private room' : 'Open room'}
+                {formatDuration(localElapsed)} / {formatDuration(duration)} • {activeRoom.isPrivate ? 'Private room' : 'Open room'}
               </Text>
             </View>
             <View className="flex-row items-center">
@@ -242,11 +252,14 @@ export default function WatchRoomScreen() {
 
         <View className="px-4 py-3 border-b border-zinc-800">
           <Text className="text-white text-lg font-bold">{activeRoom.roomName}</Text>
-          <Text className="text-zinc-500 text-sm mt-0.5">
-            Hosted by {activeRoom.users.find((participant) => participant.userId === activeRoom.hostId)?.username ?? 'Unknown'}
+          <Text className="text-zinc-500 text-sm mt-0.5" numberOfLines={1}>
+            Hosted by {activeRoom.users.find((participant) => participant.userId === activeRoom.hostId)?.username ?? 'Unknown'} • {activeRoom.videoUrl}
           </Text>
           {roomError ? (
             <Text className="text-red-400 text-xs mt-2">{roomError}</Text>
+          ) : null}
+          {playerError ? (
+            <Text className="text-red-400 text-xs mt-1">{playerError}</Text>
           ) : null}
         </View>
 

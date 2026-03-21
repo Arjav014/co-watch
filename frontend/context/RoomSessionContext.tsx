@@ -35,6 +35,7 @@ interface RoomSessionContextType {
   leaveActiveRoom: () => Promise<void>;
   sendChatMessage: (message: string) => Promise<void>;
   togglePlayback: (currentTime?: number) => Promise<void>;
+  seekPlayback: (currentTime: number) => Promise<void>;
 }
 
 const RoomSessionContext = createContext<RoomSessionContextType | undefined>(undefined);
@@ -335,20 +336,74 @@ export function RoomSessionProvider({ children }: { children: React.ReactNode })
     }
 
     const eventName = room.isPlaying ? 'pause' : 'play';
+    const nextCurrentTime = currentTime ?? room.currentTime;
+    const previousRoom = room;
 
-    await new Promise<void>((resolve, reject) => {
-      socket.emit(
-        eventName,
-        { roomId: room.roomId, currentTime: currentTime ?? room.currentTime },
-        (response: AckResponse) => {
-          if (!response.success) {
-            reject(new Error(response.message || 'Failed to update playback'));
-            return;
+    setActiveRoom((currentRoom) =>
+      currentRoom
+        ? {
+            ...currentRoom,
+            isPlaying: !currentRoom.isPlaying,
+            currentTime: nextCurrentTime,
           }
-          resolve();
-        }
-      );
-    });
+        : currentRoom
+    );
+
+    try {
+      await new Promise<void>((resolve, reject) => {
+        socket.emit(
+          eventName,
+          { roomId: room.roomId, currentTime: nextCurrentTime },
+          (response: AckResponse) => {
+            if (!response.success) {
+              reject(new Error(response.message || 'Failed to update playback'));
+              return;
+            }
+            resolve();
+          }
+        );
+      });
+    } catch (error) {
+      setActiveRoom(previousRoom);
+      throw error;
+    }
+  };
+
+  const seekPlayback = async (currentTime: number) => {
+    const socket = socketRef.current;
+    const room = activeRoomRef.current;
+    if (!socket || !room || !user || room.hostId !== user.id) {
+      return;
+    }
+
+    const previousRoom = room;
+    setActiveRoom((currentRoom) =>
+      currentRoom
+        ? {
+            ...currentRoom,
+            currentTime,
+          }
+        : currentRoom
+    );
+
+    try {
+      await new Promise<void>((resolve, reject) => {
+        socket.emit(
+          'seek',
+          { roomId: room.roomId, currentTime },
+          (response: AckResponse) => {
+            if (!response.success) {
+              reject(new Error(response.message || 'Failed to seek playback'));
+              return;
+            }
+            resolve();
+          }
+        );
+      });
+    } catch (error) {
+      setActiveRoom(previousRoom);
+      throw error;
+    }
   };
 
   useEffect(() => {
@@ -378,6 +433,7 @@ export function RoomSessionProvider({ children }: { children: React.ReactNode })
         leaveActiveRoom,
         sendChatMessage,
         togglePlayback,
+        seekPlayback,
       }}
     >
       {children}

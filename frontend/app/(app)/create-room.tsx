@@ -7,6 +7,7 @@ import Input from '@/components/ui/Input';
 import Button from '@/components/ui/Button';
 import { useRoomSession } from '@/context/RoomSessionContext';
 import { getErrorMessage } from '@/services/api';
+import { getSupportedVideoMessage, isSupportedDirectVideoUrl } from '@/utils/video';
 
 export default function CreateRoomScreen() {
   const router = useRouter();
@@ -24,6 +25,11 @@ export default function CreateRoomScreen() {
 
     if (!videoUrl.trim()) {
       setError('Video URL is required');
+      return;
+    }
+
+    if (!isSupportedDirectVideoUrl(videoUrl)) {
+      setError(getSupportedVideoMessage());
       return;
     }
 
@@ -84,7 +90,7 @@ export default function CreateRoomScreen() {
         <View className="mb-2">
           <Input
             label="Video URL"
-            placeholder="https://youtube.com/watch?v=..."
+            placeholder="https://example.com/movie.m3u8"
             value={videoUrl}
             onChangeText={setVideoUrl}
             rightIcon="link-outline"
@@ -92,7 +98,7 @@ export default function CreateRoomScreen() {
             containerClassName="mb-1"
           />
           <Text className="text-[#71717a] text-sm ml-1 mt-1">
-            Required so the room always has a clear video reference.
+            {getSupportedVideoMessage()}
           </Text>
         </View>
 
