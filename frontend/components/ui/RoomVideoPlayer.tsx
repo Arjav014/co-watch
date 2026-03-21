@@ -1,6 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Text, TouchableOpacity, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, View } from 'react-native';
 import { useEventListener } from 'expo';
 import { useVideoPlayer, VideoView, type VideoSource } from 'expo-video';
 
@@ -14,9 +13,13 @@ type RoomVideoPlayerProps = {
   onTimeUpdate: (currentTime: number) => void;
   onDurationChange: (duration: number) => void;
   onError: (message: string) => void;
+  onFullscreenEnter: () => void | Promise<void>;
+  onFullscreenExit: () => void | Promise<void>;
 };
 
 const SYNC_DRIFT_THRESHOLD_SECONDS = 1.25;
+const SEEK_JUMP_THRESHOLD_SECONDS = 1.5;
+const SEEK_COMMIT_DELAY_MS = 250;
 
 function buildVideoSource(videoUrl: string): VideoSource {
   const isHls = videoUrl.trim().toLowerCase().includes('.m3u8');
@@ -37,14 +40,47 @@ export default function RoomVideoPlayer({
   onTimeUpdate,
   onDurationChange,
   onError,
+  onFullscreenEnter,
+  onFullscreenExit,
 }: RoomVideoPlayerProps) {
   const lastAppliedSyncTimeRef = useRef(0);
+  const lastObservedTimeRef = useRef(0);
+  const suppressPlayingEventRef = useRef(false);
+  const pendingSeekTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [playerStatus, setPlayerStatus] = useState<'idle' | 'loading' | 'readyToPlay' | 'error'>('loading');
 
   const source = useMemo(() => buildVideoSource(videoUrl), [videoUrl]);
   const player = useVideoPlayer(source, (instance) => {
     instance.timeUpdateEventInterval = 0.25;
   });
+
+  const clearPendingSeekTimeout = useCallback(() => {
+    if (pendingSeekTimeoutRef.current) {
+      clearTimeout(pendingSeekTimeoutRef.current);
+      pendingSeekTimeoutRef.current = null;
+    }
+  }, []);
+
+  const syncPlaybackState = useCallback((shouldPlay: boolean) => {
+    if (player.playing === shouldPlay) {
+      return;
+    }
+
+    suppressPlayingEventRef.current = true;
+
+    if (shouldPlay) {
+      player.play();
+      return;
+    }
+
+    player.pause();
+  }, [player]);
+
+  const syncCurrentTime = useCallback((nextTime: number) => {
+    player.currentTime = nextTime;
+    lastAppliedSyncTimeRef.current = nextTime;
+    lastObservedTimeRef.current = nextTime;
+  }, [player]);
 
   useEventListener(player, 'statusChange', (payload) => {
     setPlayerStatus(payload.status);
@@ -53,12 +89,64 @@ export default function RoomVideoPlayer({
     }
   });
 
+  useEventListener(player, 'playingChange', (payload) => {
+    if (suppressPlayingEventRef.current) {
+      suppressPlayingEventRef.current = false;
+      return;
+    }
+
+    if (!isHost) {
+      syncPlaybackState(roomIsPlaying);
+      return;
+    }
+
+    if (payload.isPlaying === roomIsPlaying) {
+      return;
+    }
+
+    onTogglePlayback(player.currentTime).catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : 'Failed to update playback';
+      onError(message);
+      syncPlaybackState(roomIsPlaying);
+    });
+  });
+
   useEventListener(player, 'timeUpdate', (payload) => {
-    onTimeUpdate(payload.currentTime);
+    const previousTime = lastObservedTimeRef.current;
+    const currentTime = payload.currentTime;
+    lastObservedTimeRef.current = currentTime;
+    onTimeUpdate(currentTime);
+
+    if (!previousTime) {
+      return;
+    }
+
+    const jumpDelta = Math.abs(currentTime - previousTime);
+    const wasRemoteSync = Math.abs(currentTime - lastAppliedSyncTimeRef.current) < 0.05;
+
+    if (jumpDelta < SEEK_JUMP_THRESHOLD_SECONDS || wasRemoteSync) {
+      return;
+    }
+
+    if (!isHost) {
+      const fallbackTime = roomIsPlaying ? previousTime : roomCurrentTime;
+      syncCurrentTime(fallbackTime);
+      onTimeUpdate(fallbackTime);
+      return;
+    }
+
+    clearPendingSeekTimeout();
+    pendingSeekTimeoutRef.current = setTimeout(() => {
+      onSeek(currentTime).catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : 'Failed to seek video';
+        onError(message);
+      });
+    }, SEEK_COMMIT_DELAY_MS);
   });
 
   useEventListener(player, 'sourceLoad', (payload) => {
     onDurationChange(payload.duration);
+    lastObservedTimeRef.current = player.currentTime;
   });
 
   useEffect(() => {
@@ -66,46 +154,25 @@ export default function RoomVideoPlayer({
     const wasRemoteSync = Math.abs(roomCurrentTime - lastAppliedSyncTimeRef.current) < 0.05;
 
     if (roomCurrentTime > 0 && drift > SYNC_DRIFT_THRESHOLD_SECONDS && !wasRemoteSync) {
-      player.currentTime = roomCurrentTime;
-      lastAppliedSyncTimeRef.current = roomCurrentTime;
+      syncCurrentTime(roomCurrentTime);
     }
-  }, [player, roomCurrentTime]);
+  }, [player, roomCurrentTime, syncCurrentTime]);
 
   useEffect(() => {
-    if (roomIsPlaying && !player.playing) {
-      player.play();
+    syncPlaybackState(roomIsPlaying);
+  }, [roomIsPlaying, syncPlaybackState]);
+
+  useEffect(() => {
+    if (!isHost && !roomIsPlaying && Math.abs(player.currentTime - roomCurrentTime) > 0.1) {
+      syncCurrentTime(roomCurrentTime);
     }
+  }, [isHost, player, roomCurrentTime, roomIsPlaying, syncCurrentTime]);
 
-    if (!roomIsPlaying && player.playing) {
-      player.pause();
-    }
-  }, [player, roomIsPlaying]);
-
-  const handleTogglePlayback = () => {
-    if (!isHost) {
-      return;
-    }
-
-    onTogglePlayback(player.currentTime).catch((error: unknown) => {
-      const message = error instanceof Error ? error.message : 'Failed to update playback';
-      onError(message);
-    });
-  };
-
-  const handleJump = (seconds: number) => {
-    if (!isHost) {
-      return;
-    }
-
-    const nextTime = Math.max(0, player.currentTime + seconds);
-    player.currentTime = nextTime;
-    lastAppliedSyncTimeRef.current = nextTime;
-
-    onSeek(nextTime).catch((error: unknown) => {
-      const message = error instanceof Error ? error.message : 'Failed to seek video';
-      onError(message);
-    });
-  };
+  useEffect(() => {
+    return () => {
+      clearPendingSeekTimeout();
+    };
+  }, [clearPendingSeekTimeout]);
 
   return (
     <View className="w-full aspect-video bg-[#0a0a0a]">
@@ -113,7 +180,11 @@ export default function RoomVideoPlayer({
         player={player}
         style={{ width: '100%', height: '100%' }}
         contentFit="contain"
-        nativeControls={false}
+        nativeControls
+        requiresLinearPlayback={!isHost}
+        fullscreenOptions={{ enable: true, orientation: 'landscape', autoExitOnRotate: true }}
+        onFullscreenEnter={() => void onFullscreenEnter()}
+        onFullscreenExit={() => void onFullscreenExit()}
       />
 
       {playerStatus !== 'readyToPlay' ? (
@@ -121,48 +192,6 @@ export default function RoomVideoPlayer({
           <ActivityIndicator size="large" color="#ffffff" />
         </View>
       ) : null}
-
-      <View className="absolute inset-0 items-center justify-center">
-        <View className="flex-row items-center">
-          {isHost ? (
-            <TouchableOpacity
-              activeOpacity={0.8}
-              onPress={() => handleJump(-10)}
-              className="w-12 h-12 rounded-full bg-black/55 items-center justify-center mr-4"
-            >
-              <Ionicons name="play-back" size={22} color="#ffffff" />
-            </TouchableOpacity>
-          ) : null}
-
-          <TouchableOpacity
-            activeOpacity={0.8}
-            onPress={handleTogglePlayback}
-            disabled={!isHost}
-            className={`w-16 h-16 rounded-full items-center justify-center ${isHost ? 'bg-black/60' : 'bg-black/35'}`}
-          >
-            <Ionicons
-              name={roomIsPlaying ? 'pause' : 'play'}
-              size={28}
-              color="#ffffff"
-              style={roomIsPlaying ? undefined : { marginLeft: 2 }}
-            />
-          </TouchableOpacity>
-
-          {isHost ? (
-            <TouchableOpacity
-              activeOpacity={0.8}
-              onPress={() => handleJump(10)}
-              className="w-12 h-12 rounded-full bg-black/55 items-center justify-center ml-4"
-            >
-              <Ionicons name="play-forward" size={22} color="#ffffff" />
-            </TouchableOpacity>
-          ) : null}
-        </View>
-
-        <Text className="mt-4 text-zinc-300 text-sm px-6 text-center">
-          {isHost ? 'Tap to control playback for the room' : 'Watching host-controlled playback'}
-        </Text>
-      </View>
     </View>
   );
 }

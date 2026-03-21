@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -8,27 +8,17 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
-  Pressable,
-  type LayoutChangeEvent,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { StatusBar } from 'expo-status-bar';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import * as ScreenOrientation from 'expo-screen-orientation';
 import Avatar from '@/components/ui/Avatar';
 import ParticipantsModal from '@/components/ui/ParticipantsModal';
 import RoomVideoPlayer from '@/components/ui/RoomVideoPlayer';
 import { useAuth } from '@/context/AuthContext';
 import { useRoomSession } from '@/context/RoomSessionContext';
-
-function formatDuration(totalSeconds: number) {
-  const safeSeconds = Math.max(0, Math.floor(totalSeconds));
-  const hours = Math.floor(safeSeconds / 3600);
-  const minutes = Math.floor((safeSeconds % 3600) / 60);
-  const seconds = safeSeconds % 60;
-
-  const parts = [hours, minutes, seconds].map((value) => value.toString().padStart(2, '0'));
-  return parts.join(':');
-}
 
 export default function WatchRoomScreen() {
   const { roomId } = useLocalSearchParams<{ roomId?: string }>();
@@ -50,10 +40,8 @@ export default function WatchRoomScreen() {
   } = useRoomSession();
   const [messageText, setMessageText] = useState('');
   const [showParticipants, setShowParticipants] = useState(false);
-  const [localElapsed, setLocalElapsed] = useState(0);
-  const [duration, setDuration] = useState(0);
-  const [progressWidth, setProgressWidth] = useState(0);
   const [playerError, setPlayerError] = useState('');
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   useEffect(() => {
     if (!roomId) {
@@ -61,32 +49,27 @@ export default function WatchRoomScreen() {
     }
 
     if (activeRoom?.roomId === roomId) {
-      setLocalElapsed(activeRoom.currentTime);
       return;
     }
 
     clearRoomError();
     hydrateRoom(roomId).catch(() => undefined);
-  }, [roomId, activeRoom?.roomId, activeRoom?.currentTime, clearRoomError, hydrateRoom]);
+  }, [roomId, activeRoom?.roomId, clearRoomError, hydrateRoom]);
 
   useEffect(() => {
-    setLocalElapsed(activeRoom?.currentTime ?? 0);
-  }, [activeRoom?.currentTime, activeRoom?.roomId]);
-
-  useEffect(() => {
-    setDuration(0);
     setPlayerError('');
   }, [activeRoom?.videoUrl]);
 
+  useEffect(() => {
+    return () => {
+      if (isFullscreen) {
+        void ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
+      }
+    };
+  }, [isFullscreen]);
+
   const isHost = !!activeRoom && activeRoom.hostId === user?.id;
   const participantsCount = activeRoom?.users.length ?? 0;
-  const progress = useMemo(() => {
-    if (!duration) {
-      return 0;
-    }
-
-    return Math.min(1, Math.max(localElapsed, activeRoom?.currentTime ?? 0) / duration);
-  }, [activeRoom?.currentTime, duration, localElapsed]);
 
   const handleSend = async () => {
     if (!messageText.trim()) {
@@ -110,23 +93,23 @@ export default function WatchRoomScreen() {
     }
   };
 
-  const handleProgressLayout = (event: LayoutChangeEvent) => {
-    setProgressWidth(event.nativeEvent.layout.width);
+  const handleFullscreenEnter = async () => {
+    try {
+      await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
+      setIsFullscreen(true);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to enter fullscreen mode';
+      setPlayerError(message);
+    }
   };
 
-  const handleSeekFromTrack = async (pressX: number) => {
-    if (!isHost || !duration || progressWidth <= 0) {
-      return;
-    }
-
-    const ratio = Math.max(0, Math.min(1, pressX / progressWidth));
-    const nextTime = ratio * duration;
-    setLocalElapsed(nextTime);
-
+  const handleFullscreenExit = async () => {
     try {
-      await seekPlayback(nextTime);
-    } catch {
-      // Room-level errors are surfaced from context.
+      await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
+      setIsFullscreen(false);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to exit fullscreen mode';
+      setPlayerError(message);
     }
   };
 
@@ -152,6 +135,7 @@ export default function WatchRoomScreen() {
 
   return (
     <SafeAreaView edges={['top']} className="flex-1 bg-[#09090b]">
+      <StatusBar hidden={isFullscreen} style="light" />
       <KeyboardAvoidingView
         className="flex-1"
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -202,52 +186,12 @@ export default function WatchRoomScreen() {
             roomCurrentTime={activeRoom.currentTime}
             onTogglePlayback={togglePlayback}
             onSeek={seekPlayback}
-            onTimeUpdate={setLocalElapsed}
-            onDurationChange={setDuration}
+            onTimeUpdate={() => undefined}
+            onDurationChange={() => undefined}
             onError={setPlayerError}
+            onFullscreenEnter={handleFullscreenEnter}
+            onFullscreenExit={handleFullscreenExit}
           />
-
-          <View className="px-4 pt-2 pb-1">
-            <Pressable onLayout={handleProgressLayout} onPress={(event) => handleSeekFromTrack(event.nativeEvent.locationX)}>
-              <View className="h-1 w-full rounded-full bg-[#27272a]">
-                <View
-                  className="h-1 rounded-full bg-white"
-                  style={{ width: `${progress * 100}%` }}
-                />
-                <View
-                  className="w-3 h-3 rounded-full bg-white absolute -top-1"
-                  style={{ left: `${progress * 100}%`, marginLeft: -6 }}
-                />
-              </View>
-            </Pressable>
-          </View>
-
-          <View className="flex-row items-center justify-between px-4 pb-3 pt-1">
-            <View className="flex-row items-center">
-              <TouchableOpacity
-                onPress={() => togglePlayback(localElapsed).catch(() => undefined)}
-                className="mr-3"
-                disabled={!isHost}
-              >
-                <Ionicons
-                  name={activeRoom.isPlaying ? 'pause' : 'play'}
-                  size={20}
-                  color={isHost ? '#ffffff' : '#71717a'}
-                />
-              </TouchableOpacity>
-              <Text className="text-zinc-400 text-xs">
-                {formatDuration(localElapsed)} / {formatDuration(duration)} • {activeRoom.isPrivate ? 'Private room' : 'Open room'}
-              </Text>
-            </View>
-            <View className="flex-row items-center">
-              <TouchableOpacity className="mr-4">
-                <Ionicons name="settings-outline" size={18} color="#a1a1aa" />
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => setShowParticipants(true)}>
-                <Ionicons name="scan-outline" size={18} color="#a1a1aa" />
-              </TouchableOpacity>
-            </View>
-          </View>
         </View>
 
         <View className="px-4 py-3 border-b border-zinc-800">
