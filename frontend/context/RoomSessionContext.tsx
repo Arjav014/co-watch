@@ -1,5 +1,6 @@
 import React, {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useRef,
@@ -42,6 +43,14 @@ const RoomSessionContext = createContext<RoomSessionContextType | undefined>(und
 
 const SOCKET_URL = getBaseUrl();
 
+function normalizeRoom(room: Room | null | undefined): Room | null {
+  if (!room || room.users.length === 0) {
+    return null;
+  }
+
+  return room;
+}
+
 function buildSystemMessage(text: string): ChatMessage {
   return {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -72,17 +81,24 @@ export function RoomSessionProvider({ children }: { children: React.ReactNode })
   const { token, user } = useAuth();
   const socketRef = useRef<Socket | null>(null);
   const activeRoomRef = useRef<Room | null>(null);
+  const hydrateRequestIdRef = useRef(0);
   const [activeRoom, setActiveRoom] = useState<Room | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isRoomLoading, setIsRoomLoading] = useState(false);
   const [isSocketConnected, setIsSocketConnected] = useState(false);
   const [roomError, setRoomError] = useState('');
 
-  const clearRoomError = () => setRoomError('');
+  const clearRoomError = useCallback(() => setRoomError(''), []);
 
   useEffect(() => {
     activeRoomRef.current = activeRoom;
   }, [activeRoom]);
+
+  const resetRoomSession = () => {
+    disconnectSocket();
+    setActiveRoom(null);
+    setMessages([]);
+  };
 
   const disconnectSocket = () => {
     const socket = socketRef.current;
@@ -173,8 +189,9 @@ export function RoomSessionProvider({ children }: { children: React.ReactNode })
     });
 
     socket.on('userJoined', (payload: PresenceEvent) => {
-      if (payload.room) {
-        setActiveRoom(payload.room);
+      const nextRoom = normalizeRoom(payload.room);
+      if (nextRoom) {
+        setActiveRoom(nextRoom);
       }
       setMessages((previous) => [
         ...previous,
@@ -183,7 +200,8 @@ export function RoomSessionProvider({ children }: { children: React.ReactNode })
     });
 
     socket.on('userLeft', (payload: PresenceEvent) => {
-      setActiveRoom(payload.room ?? null);
+      const nextRoom = normalizeRoom(payload.room);
+      setActiveRoom(nextRoom);
       setMessages((previous) => [
         ...previous,
         buildSystemMessage(`${payload.username.toUpperCase()} LEFT THE ROOM`),
@@ -210,20 +228,35 @@ export function RoomSessionProvider({ children }: { children: React.ReactNode })
   };
 
   const hydrateRoom = async (roomId: string) => {
+    const requestId = ++hydrateRequestIdRef.current;
     setIsRoomLoading(true);
     setRoomError('');
 
     try {
       const room = await getRoom(roomId);
-      setActiveRoom(room);
-      ensureSocketForRoom(room);
-      return room;
+      const nextRoom = normalizeRoom(room);
+      setActiveRoom(nextRoom);
+      if (!nextRoom) {
+        throw new Error('Room not found');
+      }
+      ensureSocketForRoom(nextRoom);
+      return nextRoom;
     } catch (error: any) {
+      const hasDifferentActiveRoom =
+        !!activeRoomRef.current && activeRoomRef.current.roomId !== roomId;
+      const isStaleRequest = hydrateRequestIdRef.current !== requestId;
+
+      if (hasDifferentActiveRoom || isStaleRequest) {
+        throw error;
+      }
+
       const message = error?.response?.data?.message ?? error?.message ?? 'Failed to load room';
       setRoomError(message);
       throw error;
     } finally {
-      setIsRoomLoading(false);
+      if (hydrateRequestIdRef.current === requestId) {
+        setIsRoomLoading(false);
+      }
     }
   };
 
@@ -233,7 +266,7 @@ export function RoomSessionProvider({ children }: { children: React.ReactNode })
 
     try {
       const room = await createRoom(payload);
-      setActiveRoom(room);
+      setActiveRoom(normalizeRoom(room));
       setMessages([]);
       ensureSocketForRoom(room);
       return room;
@@ -252,7 +285,7 @@ export function RoomSessionProvider({ children }: { children: React.ReactNode })
 
     try {
       const room = await joinRoom({ roomId });
-      setActiveRoom(room);
+      setActiveRoom(normalizeRoom(room));
       setMessages([]);
       ensureSocketForRoom(room);
       return room;
@@ -297,9 +330,7 @@ export function RoomSessionProvider({ children }: { children: React.ReactNode })
       throw error;
     } finally {
       if (shouldResetState) {
-        disconnectSocket();
-        setActiveRoom(null);
-        setMessages([]);
+        resetRoomSession();
       }
       setIsRoomLoading(false);
     }
@@ -408,9 +439,7 @@ export function RoomSessionProvider({ children }: { children: React.ReactNode })
 
   useEffect(() => {
     if (!token) {
-      disconnectSocket();
-      setActiveRoom(null);
-      setMessages([]);
+      resetRoomSession();
     }
 
     return () => {

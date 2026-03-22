@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, Switch } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Input from '@/components/ui/Input';
@@ -16,6 +16,16 @@ export default function CreateRoomScreen() {
   const [videoUrl, setVideoUrl] = useState('');
   const [isPrivate, setIsPrivate] = useState(false);
   const [error, setError] = useState('');
+
+  useFocusEffect(
+    React.useCallback(() => {
+      setRoomName('');
+      setVideoUrl('');
+      setIsPrivate(false);
+      setError('');
+      clearRoomError();
+    }, [clearRoomError])
+  );
 
   const handleCreateRoom = async () => {
     if (!roomName.trim()) {
@@ -42,6 +52,10 @@ export default function CreateRoomScreen() {
         videoUrl: videoUrl.trim(),
         isPrivate,
       });
+      setRoomName('');
+      setVideoUrl('');
+      setIsPrivate(false);
+      setError('');
 
       router.replace({
         pathname: '/(app)/watch-room',

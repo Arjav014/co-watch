@@ -9,7 +9,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { useRoomSession } from '@/context/RoomSessionContext';
 import { getErrorMessage } from '@/services/api';
 
@@ -21,6 +21,14 @@ export default function JoinRoomScreen() {
   const { joinExistingRoom, isRoomLoading, clearRoomError } = useRoomSession();
   const [roomCode, setRoomCode] = useState('');
   const [error, setError] = useState('');
+
+  useFocusEffect(
+    React.useCallback(() => {
+      setRoomCode('');
+      setError('');
+      clearRoomError();
+    }, [clearRoomError])
+  );
 
   const digits = useMemo(
     () => Array.from({ length: CODE_LENGTH }, (_, index) => roomCode[index] ?? ''),
@@ -42,6 +50,8 @@ export default function JoinRoomScreen() {
 
     try {
       const room = await joinExistingRoom(roomCode);
+      setRoomCode('');
+      setError('');
       router.replace({
         pathname: '/(app)/watch-room',
         params: { roomId: room.roomId },

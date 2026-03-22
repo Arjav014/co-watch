@@ -19,6 +19,8 @@ export default function ChatScreen() {
   const { user } = useAuth();
   const { activeRoom, messages, sendChatMessage } = useRoomSession();
   const [messageText, setMessageText] = useState('');
+  const hasActiveRoom = !!activeRoom && activeRoom.users.length > 0;
+  const room = hasActiveRoom ? activeRoom : null;
 
   const handleSend = async () => {
     if (!messageText.trim()) {
@@ -33,7 +35,7 @@ export default function ChatScreen() {
     }
   };
 
-  if (!activeRoom) {
+  if (!hasActiveRoom) {
     return (
       <SafeAreaView edges={['top']} className="flex-1 bg-[#09090b]">
         <View className="flex-1 items-center justify-center px-8">
@@ -59,11 +61,11 @@ export default function ChatScreen() {
             <Ionicons name="film-outline" size={20} color="#a1a1aa" />
           </View>
           <View className="flex-1">
-            <Text className="text-white text-base font-bold">{activeRoom.roomName}</Text>
+            <Text className="text-white text-base font-bold">{room.roomName}</Text>
             <View className="flex-row items-center mt-0.5">
               <View className="w-2 h-2 rounded-full bg-green-500 mr-1.5" />
               <Text className="text-zinc-500 text-xs font-bold tracking-widest uppercase">
-                LIVE • {activeRoom.users.length} WATCHERS
+                LIVE • {room.users.length} WATCHERS
               </Text>
             </View>
           </View>

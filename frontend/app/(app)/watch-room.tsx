@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -8,11 +8,13 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
+  Alert,
+  BackHandler,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import Avatar from '@/components/ui/Avatar';
 import ParticipantsModal from '@/components/ui/ParticipantsModal';
@@ -23,7 +25,11 @@ import { useRoomSession } from '@/context/RoomSessionContext';
 export default function WatchRoomScreen() {
   const { roomId } = useLocalSearchParams<{ roomId?: string }>();
   const router = useRouter();
+  const navigation = useNavigation();
   const scrollRef = useRef<ScrollView>(null);
+  const allowNavigationRef = useRef(false);
+  const isLeavePromptVisibleRef = useRef(false);
+  const isLeavingRef = useRef(false);
   const { user } = useAuth();
   const {
     activeRoom,
@@ -48,13 +54,20 @@ export default function WatchRoomScreen() {
       return;
     }
 
-    if (activeRoom?.roomId === roomId) {
+    if (allowNavigationRef.current || isLeavingRef.current) {
+      return;
+    }
+
+    // When a room is created/joined from another screen, shared session state is
+    // already hydrated before navigation reaches this screen. Avoid reloading a
+    // stale route param and clobbering the fresh room with a "Room not found".
+    if (activeRoom) {
       return;
     }
 
     clearRoomError();
     hydrateRoom(roomId).catch(() => undefined);
-  }, [roomId, activeRoom?.roomId, clearRoomError, hydrateRoom]);
+  }, [roomId, activeRoom, clearRoomError, hydrateRoom]);
 
   useEffect(() => {
     setPlayerError('');
@@ -84,14 +97,47 @@ export default function WatchRoomScreen() {
     }
   };
 
-  const handleLeave = async () => {
+  const handleLeave = useCallback(async () => {
+    if (isLeavingRef.current) {
+      return;
+    }
+
+    isLeavingRef.current = true;
     try {
       await leaveActiveRoom();
+      allowNavigationRef.current = true;
       router.replace('/(app)');
     } catch {
       // Room-level errors are surfaced from context.
+    } finally {
+      isLeavingRef.current = false;
     }
-  };
+  }, [leaveActiveRoom, router]);
+
+  const confirmLeaveRoom = useCallback(() => {
+    if (!activeRoom || isLeavePromptVisibleRef.current || isLeavingRef.current) {
+      return;
+    }
+
+    isLeavePromptVisibleRef.current = true;
+    Alert.alert('Leave room?', 'Do you want to leave the room?', [
+      {
+        text: 'Cancel',
+        style: 'cancel',
+        onPress: () => {
+          isLeavePromptVisibleRef.current = false;
+        },
+      },
+      {
+        text: 'Leave',
+        style: 'destructive',
+        onPress: () => {
+          isLeavePromptVisibleRef.current = false;
+          void handleLeave();
+        },
+      },
+    ]);
+  }, [activeRoom, handleLeave]);
 
   const handleFullscreenEnter = async () => {
     try {
@@ -112,6 +158,34 @@ export default function WatchRoomScreen() {
       setPlayerError(message);
     }
   };
+
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('beforeRemove', (event) => {
+      if (allowNavigationRef.current || !activeRoom) {
+        return;
+      }
+
+      event.preventDefault();
+      confirmLeaveRoom();
+    });
+
+    return unsubscribe;
+  }, [activeRoom, confirmLeaveRoom, navigation]);
+
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (!activeRoom || allowNavigationRef.current) {
+        return false;
+      }
+
+      confirmLeaveRoom();
+      return true;
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [activeRoom, confirmLeaveRoom]);
 
   if (isRoomLoading && !activeRoom) {
     return (
@@ -144,7 +218,7 @@ export default function WatchRoomScreen() {
         <View className="flex-row items-center justify-between px-4 py-3 border-b border-zinc-800">
           <View className="flex-row items-center flex-1">
             <TouchableOpacity
-              onPress={() => router.back()}
+              onPress={confirmLeaveRoom}
               className="p-1 mr-3"
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
@@ -169,7 +243,7 @@ export default function WatchRoomScreen() {
             </TouchableOpacity>
 
             <TouchableOpacity
-              onPress={handleLeave}
+              onPress={confirmLeaveRoom}
               className="bg-red-600 rounded-full px-4 py-1.5"
               activeOpacity={0.8}
             >

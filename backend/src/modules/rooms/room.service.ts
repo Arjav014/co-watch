@@ -1,6 +1,7 @@
 import { getRedisClient } from '../../config/redis';
 import { RoomModel, type IRoom } from './room.model';
 import { Room, RoomUser } from './room.types';
+import { deleteMessagesByRoom } from '../chat/chat.service';
 
 const ACTIVE_ROOM_TTL_SECONDS = Number(process.env.ROOM_ACTIVE_TTL_SECONDS || 60 * 60 * 6);
 
@@ -48,6 +49,18 @@ const deleteActiveRoom = async (roomId: string) => {
     await client.del(activeRoomKey(roomId));
 };
 
+const deleteRoomFromMongo = async (roomId: string) => {
+    await RoomModel.deleteOne({ roomId });
+};
+
+const purgeRoomArtifacts = async (roomId: string) => {
+    await Promise.all([
+        deleteActiveRoom(roomId),
+        deleteRoomFromMongo(roomId),
+        deleteMessagesByRoom(roomId),
+    ]);
+};
+
 const saveRoomToMongo = async (room: Room) => {
     await RoomModel.findOneAndUpdate(
         { roomId: room.roomId },
@@ -76,11 +89,21 @@ const hydrateRoomFromMongo = async (roomId: string): Promise<Room | null> => {
 const getDurableRoom = async (roomId: string): Promise<Room | null> => {
     const activeRoom = await loadActiveRoom(roomId);
     if (activeRoom) {
+        if (activeRoom.users.length === 0) {
+            await purgeRoomArtifacts(roomId);
+            return null;
+        }
+
         return activeRoom;
     }
 
     const durableRoom = await hydrateRoomFromMongo(roomId);
     if (!durableRoom) {
+        return null;
+    }
+
+    if (durableRoom.users.length === 0) {
+        await purgeRoomArtifacts(roomId);
         return null;
     }
 
@@ -162,9 +185,8 @@ export const leaveRoom = async (roomId: string, userId: string): Promise<Room | 
 
     if (room.users.length === 0) {
         room.isPlaying = false;
-        await saveRoomToMongo(room);
-        await deleteActiveRoom(roomId);
-        return room;
+        await purgeRoomArtifacts(roomId);
+        return undefined;
     }
 
     if (room.hostId === userId) {

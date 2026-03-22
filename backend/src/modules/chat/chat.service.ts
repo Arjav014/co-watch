@@ -18,3 +18,7 @@ export const saveMessage = async (
 export const getMessagesByRoom = async (roomId: string): Promise<IChatMessage[]> => {
     return await ChatMessage.find({ roomId }).sort({ timestamp: 1 });
 };
+
+export const deleteMessagesByRoom = async (roomId: string) => {
+    await ChatMessage.deleteMany({ roomId });
+};
