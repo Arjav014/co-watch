@@ -70,7 +70,7 @@ export const registerRoomEvents = (io: Server, socket: AuthenticatedSocket) => {
         }
     });
 
-    socket.on('joinRoom', async (data: { roomId?: string } = {}, ack?: Ack<Room>) => {
+    socket.on('joinRoom', async (data: { roomId?: string; announceJoin?: boolean } = {}, ack?: Ack<Room>) => {
         try {
             const roomId = data.roomId?.trim();
             if (!roomId) {
@@ -84,15 +84,16 @@ export const registerRoomEvents = (io: Server, socket: AuthenticatedSocket) => {
                 return;
             }
 
-            const alreadyJoined = existingRoom.users.some(member => member.userId === user.userId);
             const room = await roomService.joinRoom(roomId, {
                 userId: user.userId,
                 username: user.username,
             });
+            const shouldAnnounceJoin = Boolean(data.announceJoin);
 
             socket.join(roomId);
+            io.to(roomId).emit('roomUpdated', { room });
 
-            if (!alreadyJoined) {
+            if (shouldAnnounceJoin) {
                 socket.to(roomId).emit('userJoined', {
                     userId: user.userId,
                     username: user.username,
@@ -129,6 +130,7 @@ export const registerRoomEvents = (io: Server, socket: AuthenticatedSocket) => {
             socket.leave(roomId);
 
             const updatedRoom = await roomService.leaveRoom(roomId, user.userId);
+            io.to(roomId).emit('roomUpdated', { room: updatedRoom ?? null });
 
             socket.to(roomId).emit('userLeft', {
                 userId: user.userId,

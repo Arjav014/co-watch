@@ -23,6 +23,11 @@ type AckResponse<T = undefined> = {
   data?: T;
 };
 
+type JoinRoomSocketPayload = {
+  roomId: string;
+  announceJoin?: boolean;
+};
+
 interface RoomSessionContextType {
   activeRoom: Room | null;
   messages: ChatMessage[];
@@ -77,6 +82,28 @@ function buildChatMessage(payload: {
   };
 }
 
+function buildPresenceMessages(previousRoom: Room | null, nextRoom: Room | null, currentUserId?: string) {
+  const previousUsers = previousRoom?.users ?? [];
+  const nextUsers = nextRoom?.users ?? [];
+  const previousUserIds = new Set(previousUsers.map((participant) => participant.userId));
+  const nextUserIds = new Set(nextUsers.map((participant) => participant.userId));
+  const messages: ChatMessage[] = [];
+
+  for (const participant of nextUsers) {
+    if (participant.userId !== currentUserId && !previousUserIds.has(participant.userId)) {
+      messages.push(buildSystemMessage(`${participant.username.toUpperCase()} JOINED THE ROOM`));
+    }
+  }
+
+  for (const participant of previousUsers) {
+    if (participant.userId !== currentUserId && !nextUserIds.has(participant.userId)) {
+      messages.push(buildSystemMessage(`${participant.username.toUpperCase()} LEFT THE ROOM`));
+    }
+  }
+
+  return messages;
+}
+
 export function RoomSessionProvider({ children }: { children: React.ReactNode }) {
   const { token, user } = useAuth();
   const socketRef = useRef<Socket | null>(null);
@@ -117,7 +144,10 @@ export function RoomSessionProvider({ children }: { children: React.ReactNode })
       setIsSocketConnected(true);
 
       if (activeRoomRef.current?.roomId) {
-        socket.emit('joinRoom', { roomId: activeRoomRef.current.roomId });
+        socket.emit('joinRoom', {
+          roomId: activeRoomRef.current.roomId,
+          announceJoin: false,
+        } satisfies JoinRoomSocketPayload);
       }
     });
 
@@ -173,6 +203,19 @@ export function RoomSessionProvider({ children }: { children: React.ReactNode })
       );
     });
 
+    socket.on('roomUpdated', (payload: { room?: Room | null }) => {
+      const previousRoom = activeRoomRef.current;
+      const nextRoom = normalizeRoom(payload.room);
+      const presenceMessages = buildPresenceMessages(previousRoom, nextRoom, user?.id);
+
+      activeRoomRef.current = nextRoom;
+      setActiveRoom(nextRoom);
+
+      if (presenceMessages.length > 0) {
+        setMessages((previous) => [...previous, ...presenceMessages]);
+      }
+    });
+
     socket.on('chatMessage', (payload: {
       userId: string;
       username: string;
@@ -191,21 +234,15 @@ export function RoomSessionProvider({ children }: { children: React.ReactNode })
     socket.on('userJoined', (payload: PresenceEvent) => {
       const nextRoom = normalizeRoom(payload.room);
       if (nextRoom) {
+        activeRoomRef.current = nextRoom;
         setActiveRoom(nextRoom);
       }
-      setMessages((previous) => [
-        ...previous,
-        buildSystemMessage(`${payload.username.toUpperCase()} JOINED THE ROOM`),
-      ]);
     });
 
     socket.on('userLeft', (payload: PresenceEvent) => {
       const nextRoom = normalizeRoom(payload.room);
+      activeRoomRef.current = nextRoom;
       setActiveRoom(nextRoom);
-      setMessages((previous) => [
-        ...previous,
-        buildSystemMessage(`${payload.username.toUpperCase()} LEFT THE ROOM`),
-      ]);
     });
   };
 
@@ -224,7 +261,34 @@ export function RoomSessionProvider({ children }: { children: React.ReactNode })
 
     socketRef.current = socket;
     attachRoomListeners(socket);
-    socket.emit('joinRoom', { roomId: room.roomId });
+  };
+
+  const bindSocketToRoom = async (roomId: string, options?: { announceJoin?: boolean }) => {
+    const socket = socketRef.current;
+    if (!socket) {
+      return;
+    }
+
+    await new Promise<void>((resolve, reject) => {
+      socket.emit(
+        'joinRoom',
+        {
+          roomId,
+          announceJoin: options?.announceJoin ?? false,
+        } satisfies JoinRoomSocketPayload,
+        (response: AckResponse<Room>) => {
+          if (!response.success) {
+            reject(new Error(response.message || 'Failed to join room socket'));
+            return;
+          }
+
+          if (response.data) {
+            setActiveRoom(normalizeRoom(response.data));
+          }
+          resolve();
+        }
+      );
+    });
   };
 
   const hydrateRoom = async (roomId: string) => {
@@ -240,6 +304,7 @@ export function RoomSessionProvider({ children }: { children: React.ReactNode })
         throw new Error('Room not found');
       }
       ensureSocketForRoom(nextRoom);
+      await bindSocketToRoom(nextRoom.roomId, { announceJoin: false });
       return nextRoom;
     } catch (error: any) {
       const hasDifferentActiveRoom =
@@ -269,6 +334,7 @@ export function RoomSessionProvider({ children }: { children: React.ReactNode })
       setActiveRoom(normalizeRoom(room));
       setMessages([]);
       ensureSocketForRoom(room);
+      await bindSocketToRoom(room.roomId, { announceJoin: false });
       return room;
     } catch (error: any) {
       const message = error?.response?.data?.message ?? error?.message ?? 'Failed to create room';
@@ -288,6 +354,7 @@ export function RoomSessionProvider({ children }: { children: React.ReactNode })
       setActiveRoom(normalizeRoom(room));
       setMessages([]);
       ensureSocketForRoom(room);
+      await bindSocketToRoom(room.roomId, { announceJoin: true });
       return room;
     } catch (error: any) {
       const message = error?.response?.data?.message ?? error?.message ?? 'Failed to join room';
