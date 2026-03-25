@@ -175,6 +175,25 @@ export const getRoom = async (roomId: string): Promise<Room | undefined> => {
     return room ?? undefined;
 };
 
+export const listPublicRooms = async (search?: string): Promise<Room[]> => {
+    const normalizedSearch = search?.trim();
+    const searchFilter = normalizedSearch
+        ? {
+            roomName: { $regex: normalizedSearch, $options: 'i' },
+        }
+        : {};
+
+    const roomDocs = await RoomModel.find({
+        isPrivate: false,
+        'users.0': { $exists: true },
+        ...searchFilter,
+    })
+        .sort({ updatedAt: -1 })
+        .lean();
+
+    return roomDocs.map((roomDoc) => mapDocumentToRoom(roomDoc));
+};
+
 export const leaveRoom = async (roomId: string, userId: string): Promise<Room | undefined> => {
     const room = await getDurableRoom(roomId);
     if (!room) {

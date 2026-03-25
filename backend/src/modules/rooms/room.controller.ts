@@ -3,6 +3,7 @@ import * as roomService from './room.service';
 import {
     createRoomSchema,
     joinRoomSchema,
+    listRoomsQuerySchema,
     leaveRoomSchema,
     updatePlaybackParamsSchema,
     updatePlaybackSchema,
@@ -66,6 +67,24 @@ export const getRoom = async (req: Request, res: Response, next: NextFunction) =
             data: room,
         });
     } catch (error) {
+        next(error);
+    }
+};
+
+export const listRooms = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const { search } = listRoomsQuerySchema.parse(req.query);
+        const rooms = await roomService.listPublicRooms(search);
+
+        res.status(200).json({
+            success: true,
+            data: rooms,
+        });
+    } catch (error: any) {
+        if (error.name === 'ZodError') {
+            res.status(400).json({ success: false, message: 'Invalid query' });
+            return;
+        }
         next(error);
     }
 };

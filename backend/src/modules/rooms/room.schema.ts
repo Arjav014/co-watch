@@ -10,6 +10,10 @@ export const joinRoomSchema = z.object({
     roomId: z.string().trim().min(1),
 });
 
+export const listRoomsQuerySchema = z.object({
+    search: z.string().trim().optional(),
+});
+
 export const leaveRoomSchema = z.object({
     roomId: z.string().trim().min(1),
 });

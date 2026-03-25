@@ -1,113 +1,100 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
   ScrollView,
   TouchableOpacity,
   TextInput,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
+import { useRoomSession } from '@/context/RoomSessionContext';
 import Avatar from '@/components/ui/Avatar';
 import DiscoverRoomCard from '@/components/ui/DiscoverRoomCard';
+import { listRooms } from '@/services/rooms';
+import { getErrorMessage } from '@/services/api';
+import type { Room } from '@/types';
 
-const CATEGORIES = [
-  'ALL ROOMS',
-  'TRENDING',
-  'SCI-FI',
-  'DRAMA',
-  'COMEDY',
-  'HORROR',
-  'ANIME',
-  'DOCUMENTARY',
-];
-
-// Helper to generate mock user arrays of a given size
-function mockUsers(count: number) {
-  return Array.from({ length: count }, (_, i) => ({
-    userId: `user-${i + 1}`,
-    username: `user${i + 1}`,
-  }));
+function getHostUsername(room: Room) {
+  return room.users.find((participant) => participant.userId === room.hostId)?.username ?? 'Unknown';
 }
 
-const MOCK_ROOMS = [
-  {
-    roomId: 'room-1',
-    roomName: 'Interstellar Fan Group',
-    genre: 'SCI-FI',
-    hostUsername: 'Nolan_Geek',
-    users: mockUsers(1200),
-    isPlaying: true,
-    isPrivate: false,
-    videoUrl: 'https://example.com/interstellar',
-    gradientColors: ['#1a1a2e', '#e94560', '#0f3460'] as [string, string, string],
-    icon: 'planet-outline' as const,
-  },
-  {
-    roomId: 'room-2',
-    roomName: 'Nature Docs Chill',
-    genre: 'DOCUMENTARY',
-    hostUsername: 'EarthWatch',
-    users: mockUsers(842),
-    isPlaying: true,
-    isPrivate: false,
-    videoUrl: 'https://example.com/nature-docs',
-    gradientColors: ['#0b3d0b', '#1b5e20', '#2e7d32'] as [string, string, string],
-    icon: 'leaf-outline' as const,
-  },
-  {
-    roomId: 'room-3',
-    roomName: 'Classic Noir Rewatch',
-    genre: 'CLASSIC',
-    hostUsername: 'FilmBuff99',
-    users: mockUsers(3100),
-    isPlaying: false,
-    isPrivate: false,
-    videoUrl: 'https://example.com/noir-classics',
-    gradientColors: ['#212121', '#424242', '#616161'] as [string, string, string],
-    icon: 'videocam-outline' as const,
-  },
-  {
-    roomId: 'room-4',
-    roomName: 'Neon Nights: Anime',
-    genre: 'ANIME',
-    hostUsername: 'Aicra_Fan',
-    users: mockUsers(520),
-    isPlaying: true,
-    isPrivate: false,
-    videoUrl: 'https://example.com/anime-nights',
-    gradientColors: ['#4a148c', '#7c43bd', '#e040fb'] as [string, string, string],
-    icon: 'sparkles-outline' as const,
-  },
-  {
-    roomId: 'room-5',
-    roomName: 'Friday Fright Night',
-    genre: 'HORROR',
-    hostUsername: 'GhostHunter',
-    users: mockUsers(3100),
-    isPlaying: true,
-    isPrivate: true,
-    videoUrl: 'https://example.com/fright-night',
-    gradientColors: ['#b71c1c', '#880e4f', '#311b92'] as [string, string, string],
-    icon: 'skull-outline' as const,
-  },
-  {
-    roomId: 'room-6',
-    roomName: 'Indie Shorts Marathon',
-    genre: 'INDIE',
-    hostUsername: 'DirectorCut',
-    users: mockUsers(154),
-    isPlaying: false,
-    isPrivate: false,
-    videoUrl: 'https://example.com/indie-shorts',
-    gradientColors: ['#1a237e', '#283593', '#3949ab'] as [string, string, string],
-    icon: 'film-outline' as const,
-  },
-];
-
 export default function DiscoverScreen() {
+  const router = useRouter();
   const { user } = useAuth();
-  const [activeCategory, setActiveCategory] = useState('ALL ROOMS');
+  const { joinExistingRoom } = useRoomSession();
+  const [rooms, setRooms] = useState<Room[]>([]);
+  const [searchText, setSearchText] = useState('');
+  const [debouncedSearchText, setDebouncedSearchText] = useState('');
+  const [isLoadingRooms, setIsLoadingRooms] = useState(true);
+  const [roomsError, setRoomsError] = useState('');
+  const [joiningRoomId, setJoiningRoomId] = useState<string | null>(null);
+
+  const loadRooms = React.useCallback(async (search: string) => {
+    setIsLoadingRooms(true);
+    setRoomsError('');
+
+    try {
+      const nextRooms = await listRooms(search);
+      setRooms(nextRooms);
+    } catch (error) {
+      setRooms([]);
+      setRoomsError(getErrorMessage(error));
+    } finally {
+      setIsLoadingRooms(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      setDebouncedSearchText(searchText.trim());
+    }, 250);
+
+    return () => {
+      clearTimeout(timeout);
+    };
+  }, [searchText]);
+
+  useEffect(() => {
+    void loadRooms(debouncedSearchText).catch(() => undefined);
+  }, [debouncedSearchText, loadRooms]);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      void loadRooms(debouncedSearchText);
+    }, [debouncedSearchText, loadRooms])
+  );
+
+  const emptyStateText = useMemo(() => {
+    if (debouncedSearchText) {
+      return `No public rooms found for "${debouncedSearchText}".`;
+    }
+
+    return 'No public rooms are live right now. Create one to get things started.';
+  }, [debouncedSearchText]);
+
+  const handleJoinRoom = async (roomId: string) => {
+    if (joiningRoomId) {
+      return;
+    }
+
+    setJoiningRoomId(roomId);
+    setRoomsError('');
+
+    try {
+      const room = await joinExistingRoom(roomId);
+      router.replace({
+        pathname: '/(app)/watch-room',
+        params: { roomId: room.roomId },
+      });
+    } catch (error) {
+      setRoomsError(getErrorMessage(error));
+    } finally {
+      setJoiningRoomId(null);
+    }
+  };
 
   return (
     <View className="flex-1 bg-[#18181b]">
@@ -116,7 +103,6 @@ export default function DiscoverScreen() {
         contentContainerStyle={{ paddingTop: 64, paddingBottom: 100 }}
         showsVerticalScrollIndicator={false}
       >
-        {/* Header */}
         <View className="flex-row items-center justify-between px-6 mb-5">
           <View className="flex-row items-center">
             <Ionicons name="search" size={22} color="white" style={{ marginRight: 8 }} />
@@ -127,71 +113,77 @@ export default function DiscoverScreen() {
           </View>
         </View>
 
-        {/* Search Bar */}
-        <View className="mx-6 mb-5">
+        <View className="mx-6 mb-3">
+          <Text className="text-zinc-400 text-sm leading-5 mb-3">
+            Browse live public rooms and jump straight into what people are watching.
+          </Text>
           <View className="flex-row items-center bg-[#27272a] rounded-xl px-4 h-12">
             <Ionicons name="search-outline" size={18} color="#71717a" style={{ marginRight: 10 }} />
             <TextInput
-              placeholder="Search rooms, movies, or creators..."
+              placeholder="Search public rooms by name..."
               placeholderTextColor="#71717a"
               className="flex-1 text-white text-sm"
-              editable={false}
+              autoCapitalize="none"
+              autoCorrect={false}
+              value={searchText}
+              onChangeText={setSearchText}
             />
+            {searchText ? (
+              <TouchableOpacity onPress={() => setSearchText('')}>
+                <Ionicons name="close-circle" size={18} color="#71717a" />
+              </TouchableOpacity>
+            ) : null}
           </View>
         </View>
 
-        {/* Category Chips */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ paddingHorizontal: 24, gap: 8, marginBottom: 8 }}
-          className="mb-4"
-        >
-          {CATEGORIES.map((cat) => {
-            const isActive = cat === activeCategory;
-            return (
-              <TouchableOpacity
-                key={cat}
-                onPress={() => setActiveCategory(cat)}
-                className={`px-4 py-2.5 rounded-xl border ${
-                  isActive
-                    ? 'bg-white border-white'
-                    : 'bg-transparent border-[#3f3f46]'
-                }`}
-              >
-                <Text
-                  className={`text-xs font-bold tracking-wider ${
-                    isActive ? 'text-black' : 'text-zinc-400'
-                  }`}
-                >
-                  {cat}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
+        {roomsError ? (
+          <View className="mx-6 mb-2 flex-row items-center rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3">
+            <Ionicons name="alert-circle-outline" size={18} color="#f87171" />
+            <Text className="ml-2 flex-1 text-sm text-red-300">{roomsError}</Text>
+          </View>
+        ) : null}
 
-        {/* Room Cards */}
         <View className="px-6 mt-2">
-          {MOCK_ROOMS.map((room) => (
-            <DiscoverRoomCard
-              key={room.roomId}
-              roomName={room.roomName}
-              genre={room.genre}
-              hostUsername={room.hostUsername}
-              users={room.users}
-              isPlaying={room.isPlaying}
-              isPrivate={room.isPrivate}
-              videoUrl={room.videoUrl}
-              gradientColors={room.gradientColors}
-              icon={room.icon}
-              onPress={() => console.log('Open room:', room.roomId)}
-            />
-          ))}
+          {isLoadingRooms ? (
+            <View className="items-center py-16">
+              <ActivityIndicator size="large" color="#ffffff" />
+              <Text className="text-zinc-400 text-sm mt-4">Loading public rooms...</Text>
+            </View>
+          ) : null}
+
+          {!isLoadingRooms && !rooms.length ? (
+            <View className="items-center rounded-2xl border border-[#27272a] bg-[#09090b] px-6 py-12">
+              <Ionicons name="videocam-outline" size={36} color="#71717a" />
+              <Text className="text-white text-lg font-bold mt-4 mb-2">Nothing To Discover Yet</Text>
+              <Text className="text-zinc-500 text-sm text-center leading-6">
+                {emptyStateText}
+              </Text>
+            </View>
+          ) : null}
+
+          {!isLoadingRooms && rooms.length ? (
+            <>
+              <Text className="text-zinc-400 text-xs font-bold tracking-[2px] mb-4">
+                PUBLIC ROOMS {rooms.length}
+              </Text>
+              {rooms.map((room) => (
+                <DiscoverRoomCard
+                  key={room.roomId}
+                  roomId={room.roomId}
+                  roomName={room.roomName}
+                  hostUsername={getHostUsername(room)}
+                  users={room.users}
+                  isPlaying={room.isPlaying}
+                  isPrivate={room.isPrivate}
+                  videoUrl={room.videoUrl}
+                  onPress={() => void handleJoinRoom(room.roomId)}
+                />
+              ))}
+            </>
+          ) : null}
         </View>
       </ScrollView>
 
-      {/* FAB */}
       <TouchableOpacity
         className="absolute bottom-6 right-6 w-14 h-14 rounded-full bg-white items-center justify-center"
         style={{
@@ -202,6 +194,7 @@ export default function DiscoverScreen() {
           elevation: 8,
         }}
         activeOpacity={0.85}
+        onPress={() => router.push('/(app)/create-room')}
       >
         <Ionicons name="add" size={28} color="black" />
       </TouchableOpacity>
